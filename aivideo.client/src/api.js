@@ -53,6 +53,7 @@ export const api = {
     // ---- Generations ----
     listGenerations: (take = 50) => request(`/api/generations?take=${take}`),
     getGeneration: (id) => request(`/api/generations/${id}`),
+    deleteGeneration: (id) => request(`/api/generations/${id}`, { method: 'DELETE' }),
     textToVideo: (body) => request('/api/generations/text-to-video', { method: 'POST', body: JSON.stringify(body) }),
     imageToVideo: (body) => request('/api/generations/image-to-video', { method: 'POST', body: JSON.stringify(body) }),
     generateImage: (body) => request('/api/generations/image', { method: 'POST', body: JSON.stringify(body) }),

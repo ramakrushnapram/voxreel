@@ -44,6 +44,13 @@ public sealed class GenerationsController(
             : Ok(GenerationResponse.From(generation));
     }
 
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id, CancellationToken cancellationToken)
+    {
+        var deleted = await generationService.DeleteAsync(User.GetUserId(), id, cancellationToken);
+        return deleted ? NoContent() : NotFound();
+    }
+
     [HttpGet]
     public async Task<ActionResult<IReadOnlyList<GenerationResponse>>> List(
         [FromQuery] int take = 50,

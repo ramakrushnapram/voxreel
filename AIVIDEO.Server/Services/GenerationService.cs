@@ -175,6 +175,26 @@ public sealed class GenerationService(
             .Include(g => g.Assets)
             .FirstOrDefaultAsync(g => g.Id == id && g.UserId == userId, cancellationToken);
 
+    /// <summary>
+    /// Deletes one of the caller's generations and its asset rows (cascade). Scoped by UserId
+    /// so a user can only delete their own; returns false if it isn't theirs or doesn't exist.
+    /// The files on disk are left in place — harmless, and cheaper than tracking every path here.
+    /// </summary>
+    public async Task<bool> DeleteAsync(Guid userId, Guid id, CancellationToken cancellationToken = default)
+    {
+        var entity = await db.GenerationRequests
+            .FirstOrDefaultAsync(g => g.Id == id && g.UserId == userId, cancellationToken);
+
+        if (entity is null)
+        {
+            return false;
+        }
+
+        db.GenerationRequests.Remove(entity);
+        await db.SaveChangesAsync(cancellationToken);
+        return true;
+    }
+
     public async Task<IReadOnlyList<GenerationRequest>> ListAsync(
         Guid userId,
         int take = 50,

@@ -33,10 +33,11 @@ public sealed class FreeImageProvider(
         var (width, height) = Dimensions(aspectRatio, resolution);
 
         // nologo removes the watermark; a fixed model keeps output consistent; seed makes a
-        // generation reproducible and, varied per request, avoids the CDN returning a cached
-        // image for a repeated prompt.
+        // generation reproducible and, varied per request, avoids a cached image for a repeat
+        // prompt; enhance lets the service expand a terse prompt into a richer one, which
+        // noticeably lifts quality on short inputs.
         var url = $"https://image.pollinations.ai/prompt/{Uri.EscapeDataString(prompt)}" +
-                  $"?width={width}&height={height}&nologo=true&model=flux&seed={seed}";
+                  $"?width={width}&height={height}&nologo=true&enhance=true&model=flux&seed={seed}";
 
         logger.LogInformation("Requesting free image ({W}x{H}) from Pollinations.", width, height);
 
@@ -70,10 +71,12 @@ public sealed class FreeImageProvider(
     /// </summary>
     private static (int Width, int Height) Dimensions(string aspectRatio, string resolution)
     {
+        // Higher tiers now request genuinely larger images for more detail. Capped at 2048:
+        // beyond that the free service slows sharply and times out — a deliberate ceiling.
         var longEdge = resolution.ToUpperInvariant() switch
         {
-            "2K" => 1280,
-            "4K" => 1536,
+            "2K" => 1536,
+            "4K" => 2048,
             _ => 1024
         };
 

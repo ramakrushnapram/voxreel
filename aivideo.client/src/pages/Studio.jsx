@@ -46,8 +46,24 @@ export default function Studio() {
         setGenerations((current) => [generation, ...current]);
     }
 
+    async function handleDelete(id) {
+        // Optimistic: drop it from the list immediately; the DELETE is idempotent so a
+        // failure just means it reappears on the next refresh.
+        setGenerations((current) => current.filter((g) => g.id !== id));
+        try {
+            await api.deleteGeneration(id);
+        } catch {
+            refresh();
+        }
+    }
+
     return (
         <div className="studio">
+            <div className="studio-head">
+                <h1>Studio</h1>
+                <p>Generate images and clips. Pick <strong>Free</strong> for no-cost, no-key generation.</p>
+            </div>
+
             <PolloKeyNotice status={status} />
 
             <nav className="tabs">
@@ -82,7 +98,9 @@ export default function Studio() {
                     )}
 
                     <div className="grid">
-                        {generations.map((g) => <GenerationCard key={g.id} generation={g} />)}
+                        {generations.map((g) => (
+                            <GenerationCard key={g.id} generation={g} onDelete={handleDelete} />
+                        ))}
                     </div>
                 </section>
             </div>
