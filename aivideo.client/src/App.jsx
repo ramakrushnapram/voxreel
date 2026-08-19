@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { api, isTerminal } from './api';
 import ImageStudio from './components/ImageStudio';
 import AnimatePanel from './components/AnimatePanel';
@@ -18,11 +18,6 @@ export default function App() {
     const [generations, setGenerations] = useState([]);
     const [loadError, setLoadError] = useState(null);
 
-    // Kept in a ref so the polling effect can read the current list without re-subscribing
-    // on every change, which would otherwise restart the interval constantly.
-    const generationsRef = useRef(generations);
-    generationsRef.current = generations;
-
     useEffect(() => {
         api.status().then(setStatus).catch((err) => setLoadError(err.message));
     }, []);
@@ -39,15 +34,17 @@ export default function App() {
     useEffect(() => { refresh(); }, [refresh]);
 
     // Poll only while something is actually in flight. Renders take minutes, so a permanent
-    // interval would be mostly wasted requests once the queue drains.
-    useEffect(() => {
-        const interval = setInterval(() => {
-            const pending = generationsRef.current.some((g) => !isTerminal(g.status));
-            if (pending) refresh();
-        }, 5000);
+    // interval would be mostly wasted requests once the queue drains. Deriving this during
+    // render (rather than reading a ref) means the interval is created and torn down by the
+    // pending state itself, with no ref mutation during render.
+    const hasPending = generations.some((g) => !isTerminal(g.status));
 
+    useEffect(() => {
+        if (!hasPending) return undefined;
+
+        const interval = setInterval(refresh, 5000);
         return () => clearInterval(interval);
-    }, [refresh]);
+    }, [hasPending, refresh]);
 
     function handleCreated(generation) {
         setGenerations((current) => [generation, ...current]);
