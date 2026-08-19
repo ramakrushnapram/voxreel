@@ -53,16 +53,18 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
             _ => ("1.3", cx, $"(ih-ih/zoom)*on/{f}"),                        // pan down
         };
 
-        // Upscale 3x first so the zoom/pan stays sharp and jitter-free, then zoompan to target.
+        // Upscale 2x with lanczos (sharper than the default bilinear) before zoompan. 2x of a 2K
+        // source is ample detail for a 1080p crop-and-zoom, and far cheaper than a larger factor.
         var vf =
-            $"scale={width * 3}:{height * 3}," +
+            $"scale={width * 2}:{height * 2}:flags=lanczos," +
             $"zoompan=z='{z}':x='{x}':y='{y}':d={frames}:s={width}x{height}:fps=25," +
             "setsar=1,format=yuv420p";
 
         string[] args =
         [
             "-y", "-loop", "1", "-i", imagePath, "-t", seconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
-            "-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+            // preset medium + crf 18 = visibly sharper than veryfast/crf20, still fast enough for stills.
+            "-vf", vf, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
             outputPath
         ];
 
@@ -75,13 +77,21 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
     /// don't eat into narration time — the final video ends up ~one transition longer than the
     /// narration, which the mux trims with -shortest.
     /// </summary>
+    /// <param name="fastIntermediate">
+    /// When true this output will be re-encoded again downstream (e.g. by the subtitle burn), so
+    /// it's encoded ultrafast/low-quality to save time — the final quality comes from that later
+    /// pass. When false this IS the final video track, so it's encoded at full quality.
+    /// </param>
     public async Task ConcatWithTransitionsAsync(
         IReadOnlyList<string> clipPaths,
         IReadOnlyList<double> clipSeconds,
         double transitionSeconds,
         string outputPath,
+        bool fastIntermediate,
         CancellationToken cancellationToken)
     {
+        var (preset, crf) = fastIntermediate ? ("ultrafast", "23") : ("medium", "18");
+
         if (clipPaths.Count == 1)
         {
             // Nothing to transition; just normalise-copy the single clip.
@@ -112,7 +122,7 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
         var args = new List<string> { "-y" };
         args.AddRange(inputs);
         args.AddRange(["-filter_complex", filter.ToString().TrimEnd(';'),
-            "-map", "[vout]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-pix_fmt", "yuv420p",
+            "-map", "[vout]", "-c:v", "libx264", "-preset", preset, "-crf", crf, "-pix_fmt", "yuv420p",
             outputPath]);
 
         await RunExpectingSuccessAsync(args.ToArray(), TimeSpan.FromMinutes(8), cancellationToken);
@@ -188,6 +198,26 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
             "-map", "[a]", "-c:a", "pcm_s16le", outputPath
         ];
         await RunExpectingSuccessAsync(args, TimeSpan.FromMinutes(3), cancellationToken);
+    }
+
+    /// <summary>
+    /// Muxes video + audio while burning an SRT into the picture. Re-encodes the video (burning
+    /// text can't be a stream copy). The subtitle path is escaped for the libass filter, whose
+    /// parser treats backslashes and the drive colon specially on Windows.
+    /// </summary>
+    public async Task BurnSubtitlesAndMuxAsync(string videoPath, string audioPath, string srtPath, string outputPath, CancellationToken cancellationToken)
+    {
+        var escaped = srtPath.Replace('\\', '/').Replace(":", "\\:");
+        var style = "FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=40";
+        string[] args =
+        [
+            "-y", "-i", videoPath, "-i", audioPath,
+            "-filter_complex", $"[0:v]subtitles='{escaped}':force_style='{style}'[v]",
+            "-map", "[v]", "-map", "1:a:0",
+            "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "192k", "-shortest", outputPath
+        ];
+        await RunExpectingSuccessAsync(args, TimeSpan.FromMinutes(10), cancellationToken);
     }
 
     /// <summary>Muxes the video track with the narration into the final MP4.</summary>

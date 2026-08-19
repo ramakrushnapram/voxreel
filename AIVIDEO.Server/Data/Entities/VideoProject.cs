@@ -49,6 +49,9 @@ public class VideoProject
     /// <summary>Mix a synthesized ambient music bed under the narration (ducked when the voice plays).</summary>
     public bool BackgroundMusic { get; set; } = true;
 
+    /// <summary>Burn the narration into the video as on-screen captions.</summary>
+    public bool Subtitles { get; set; } = true;
+
     public string ScriptText { get; set; } = string.Empty;
 
     public VideoProjectStatus Status { get; set; } = VideoProjectStatus.Draft;

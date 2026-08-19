@@ -25,6 +25,7 @@ export default function MovieStudio({ status }) {
     const [aspectRatio, setAspectRatio] = useState('16:9');
     const [useRag, setUseRag] = useState(false);
     const [music, setMusic] = useState(true);
+    const [subtitles, setSubtitles] = useState(true);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const [projects, setProjects] = useState([]);
@@ -60,6 +61,7 @@ export default function MovieStudio({ status }) {
                 aspectRatio,
                 useRag,
                 backgroundMusic: music,
+                subtitles,
             });
             setTopic('');
             setTitle('');
@@ -121,6 +123,10 @@ export default function MovieStudio({ status }) {
                 <label className="check">
                     <input type="checkbox" checked={music} onChange={(e) => setMusic(e.target.checked)} />
                     <span>Background music<em>A soft ambient bed, ducked under the narration.</em></span>
+                </label>
+                <label className="check">
+                    <input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} />
+                    <span>Burn-in subtitles<em>On-screen captions timed to the narration.</em></span>
                 </label>
                 <label className="check">
                     <input type="checkbox" checked={useRag} onChange={(e) => setUseRag(e.target.checked)} />

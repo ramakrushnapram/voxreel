@@ -31,6 +31,7 @@ public sealed class VideoProjectsController(
             AspectRatio = request.AspectRatio,
             UseRag = request.UseRag,
             BackgroundMusic = request.BackgroundMusic,
+            Subtitles = request.Subtitles,
             Status = VideoProjectStatus.Draft
         };
 

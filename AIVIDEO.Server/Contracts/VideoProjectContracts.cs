@@ -18,6 +18,8 @@ public sealed record CreateVideoProjectRequest
     public bool UseRag { get; init; }
 
     public bool BackgroundMusic { get; init; } = true;
+
+    public bool Subtitles { get; init; } = true;
 }
 
 public sealed record SceneResponse

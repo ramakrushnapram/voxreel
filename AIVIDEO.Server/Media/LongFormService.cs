@@ -141,11 +141,11 @@ public sealed partial class LongFormService(
         {
             scene.VisualPrompt = await DescribeVisualAsync(scene.NarrationText, cancellationToken);
 
-            // Free provider only, for now — a long video at Pollo image rates would be costly,
-            // and the free model is fine under narration with a Ken Burns move.
+            // Free provider only, for now — a long video at Pollo image rates would be costly.
+            // Generate at 2K so there's real detail to zoom into without the picture going soft.
             var seed = (int)(scene.Id.GetHashCode() & 0x7fffffff);
             var asset = await freeImage.GenerateAsync(
-                scene.VisualPrompt, project.AspectRatio, "1K", project.UserId, seed, cancellationToken);
+                scene.VisualPrompt, project.AspectRatio, "2K", project.UserId, seed, cancellationToken);
             asset.GenerationRequestId = null;
             db.MediaAssets.Add(asset);
             scene.ImageAssetId = asset.Id;
@@ -205,7 +205,10 @@ public sealed partial class LongFormService(
         var narrationTrack = Path.Combine(workDir, "narration.wav");
         var finalPath = Path.Combine(workDir, "final.mp4");
 
-        await ffmpeg.ConcatWithTransitionsAsync(clipPaths, clipSeconds, transition, videoTrack, cancellationToken);
+        // If subtitles are on, the burn step re-encodes this track — so render it fast here and
+        // let that pass set final quality. If not, this track is final, so render it at quality.
+        await ffmpeg.ConcatWithTransitionsAsync(
+            clipPaths, clipSeconds, transition, videoTrack, fastIntermediate: project.Subtitles, cancellationToken);
         await ffmpeg.ConcatAudioAsync(wavPaths, Path.Combine(workDir, "audio.txt"), narrationTrack, cancellationToken);
 
         // Optionally lay a synthesized ambient bed under the narration (ducked when the voice
@@ -229,7 +232,26 @@ public sealed partial class LongFormService(
             }
         }
 
-        await ffmpeg.MuxAsync(videoTrack, finalAudioTrack, finalPath, cancellationToken);
+        // Burn captions when enabled: timings follow the sequential narration (cumulative scene
+        // durations), which is what the audio track uses — the crossfades only shift the picture.
+        if (project.Subtitles)
+        {
+            try
+            {
+                var srtPath = Path.Combine(workDir, "captions.srt");
+                await File.WriteAllTextAsync(srtPath, BuildSrt(project.Scenes.OrderBy(s => s.Index)), cancellationToken);
+                await ffmpeg.BurnSubtitlesAndMuxAsync(videoTrack, finalAudioTrack, srtPath, finalPath, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Subtitle burn failed for {Id}; muxing without captions.", project.Id);
+                await ffmpeg.MuxAsync(videoTrack, finalAudioTrack, finalPath, cancellationToken);
+            }
+        }
+        else
+        {
+            await ffmpeg.MuxAsync(videoTrack, finalAudioTrack, finalPath, cancellationToken);
+        }
 
         // Register the finished MP4 as an asset the user can stream and download.
         await using var stream = File.OpenRead(finalPath);
@@ -287,12 +309,58 @@ public sealed partial class LongFormService(
         await db.SaveChangesAsync(cancellationToken);
     }
 
+    // 1080p output: 720p looked soft, especially once scaled up in a browser player.
     private static (int Width, int Height) Dimensions(string aspectRatio) => aspectRatio switch
     {
-        "9:16" => (720, 1280),
+        "9:16" => (1080, 1920),
         "1:1" => (1080, 1080),
-        _ => (1280, 720)
+        _ => (1920, 1080)
     };
+
+    /// <summary>
+    /// Builds an SRT from the scenes, timing each caption to its narration span (cumulative
+    /// durations). Long narration is wrapped to two lines so captions don't run off-screen.
+    /// </summary>
+    private static string BuildSrt(IEnumerable<Scene> scenes)
+    {
+        var sb = new System.Text.StringBuilder();
+        var cursor = TimeSpan.Zero;
+        var n = 1;
+        foreach (var scene in scenes)
+        {
+            var start = cursor;
+            var end = cursor + TimeSpan.FromMilliseconds(Math.Max(1000, scene.DurationMs));
+            sb.Append(n++).Append('\n')
+              .Append(Srt(start)).Append(" --> ").Append(Srt(end)).Append('\n')
+              .Append(Wrap(scene.NarrationText)).Append("\n\n");
+            cursor = end;
+        }
+        return sb.ToString();
+    }
+
+    private static string Srt(TimeSpan t) =>
+        $"{(int)t.TotalHours:D2}:{t.Minutes:D2}:{t.Seconds:D2},{t.Milliseconds:D3}";
+
+    /// <summary>Wraps caption text to roughly two lines so it stays on screen.</summary>
+    private static string Wrap(string text)
+    {
+        var words = text.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var lines = new List<string>();
+        var line = new System.Text.StringBuilder();
+        foreach (var w in words)
+        {
+            if (line.Length + w.Length > 42 && line.Length > 0)
+            {
+                lines.Add(line.ToString());
+                line.Clear();
+            }
+            if (line.Length > 0) line.Append(' ');
+            line.Append(w);
+        }
+        if (line.Length > 0) lines.Add(line.ToString());
+        // Keep at most two lines; anything longer is a sign the scene grouping is too big.
+        return string.Join("\n", lines.Take(2));
+    }
 
     private static List<string> SplitSentences(string text)
     {
