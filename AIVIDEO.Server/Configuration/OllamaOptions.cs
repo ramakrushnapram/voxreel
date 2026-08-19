@@ -9,8 +9,12 @@ public sealed class OllamaOptions
 {
     public const string SectionName = "Ollama";
 
-    /// <summary>Ollama's local server. Default is its standard port.</summary>
-    public string BaseUrl { get; set; } = "http://localhost:11434";
+    /// <summary>
+    /// Ollama's local server. Uses 127.0.0.1 rather than "localhost" deliberately: Ollama binds
+    /// to IPv4 only, but .NET resolves "localhost" to ::1 (IPv6) first, which hangs until the
+    /// probe times out and makes Ollama look unavailable when it is running fine.
+    /// </summary>
+    public string BaseUrl { get; set; } = "http://127.0.0.1:11434";
 
     /// <summary>Chat/instruct model for prompt enhancement and script writing. Pull with `ollama pull llama3.2`.</summary>
     public string ChatModel { get; set; } = "llama3.2";
