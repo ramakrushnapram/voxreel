@@ -11,6 +11,9 @@ public class GenerationRequest
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    /// <summary>Owner. Every query is scoped by this so users only ever see their own work.</summary>
+    public Guid UserId { get; set; }
+
     public GenerationKind Kind { get; set; }
 
     /// <summary>Role the model was chosen for (Hero, Broll, ImageToVideo, Still).</summary>

@@ -2,7 +2,9 @@ using AIVIDEO.Server.Configuration;
 using AIVIDEO.Server.Contracts;
 using AIVIDEO.Server.Data;
 using AIVIDEO.Server.Data.Entities;
+using AIVIDEO.Server.Infrastructure;
 using AIVIDEO.Server.Storage;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -10,6 +12,7 @@ using Microsoft.Extensions.Options;
 namespace AIVIDEO.Server.Controllers;
 
 [ApiController]
+[Authorize]
 [Route("api/assets")]
 public sealed class AssetsController(
     AppDbContext db,
@@ -19,11 +22,16 @@ public sealed class AssetsController(
     /// <summary>
     /// Streams the stored file.
     ///
-    /// This endpoint is also what Pollo calls when Storage:PublicBaseUrl is configured and an
-    /// uploaded image is used as an image-to-video source, so it must stay anonymous and must
-    /// support range requests for video scrubbing in the browser.
+    /// Deliberately anonymous. Two callers cannot present a bearer token: Pollo, which fetches
+    /// an uploaded source image from its own servers, and the browser's &lt;video&gt;/&lt;img&gt;
+    /// tags, which don't send Authorization headers. Access is therefore gated by possession of
+    /// the asset's GUIDv7 id — a capability URL — rather than by the owning session. Ids are
+    /// unguessable, but anyone holding one can fetch the file, so nothing sensitive should be
+    /// served here beyond the user's own generated media. Range requests are enabled for
+    /// in-browser video scrubbing.
     /// </summary>
     [HttpGet("{id:guid}/raw")]
+    [AllowAnonymous]
     public async Task<IActionResult> GetRaw(Guid id, CancellationToken cancellationToken)
     {
         var asset = await db.MediaAssets.FirstOrDefaultAsync(a => a.Id == id, cancellationToken);
@@ -83,6 +91,7 @@ public sealed class AssetsController(
         await using var stream = file.OpenReadStream();
         var asset = await assetStore.SaveUploadAsync(
             stream, file.FileName, contentType, AssetKind.SourceImage, cancellationToken);
+        asset.UserId = User.GetUserId();
 
         db.MediaAssets.Add(asset);
         await db.SaveChangesAsync(cancellationToken);

@@ -37,6 +37,7 @@ public sealed class GenerationService(
     };
 
     public async Task<GenerationRequest> CreateTextToVideoAsync(
+        Guid userId,
         CreateTextToVideoRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -57,6 +58,7 @@ public sealed class GenerationService(
 
         var entity = new GenerationRequest
         {
+            UserId = userId,
             Kind = GenerationKind.TextToVideo,
             Role = request.Role,
             Model = model,
@@ -72,12 +74,13 @@ public sealed class GenerationService(
     }
 
     public async Task<GenerationRequest> CreateImageToVideoAsync(
+        Guid userId,
         CreateImageToVideoRequest request,
         CancellationToken cancellationToken = default)
     {
         ValidateLength(request.Length);
 
-        var imageUrl = await ResolveImageUrlAsync(request.ImageUrl, request.AssetId, cancellationToken);
+        var imageUrl = await ResolveImageUrlAsync(userId, request.ImageUrl, request.AssetId, cancellationToken);
 
         var opts = polloOptions.CurrentValue;
         var model = opts.Models.ImageToVideo;
@@ -94,6 +97,7 @@ public sealed class GenerationService(
 
         var entity = new GenerationRequest
         {
+            UserId = userId,
             Kind = GenerationKind.ImageToVideo,
             Role = nameof(PolloModelOptions.ImageToVideo),
             Model = model,
@@ -109,6 +113,7 @@ public sealed class GenerationService(
     }
 
     public async Task<GenerationRequest> CreateImageAsync(
+        Guid userId,
         CreateImageRequest request,
         CancellationToken cancellationToken = default)
     {
@@ -118,7 +123,7 @@ public sealed class GenerationService(
         string? sourceUrl = null;
         if (request.SourceAssetId is not null || !string.IsNullOrWhiteSpace(request.SourceImageUrl))
         {
-            sourceUrl = await ResolveImageUrlAsync(request.SourceImageUrl, request.SourceAssetId, cancellationToken);
+            sourceUrl = await ResolveImageUrlAsync(userId, request.SourceImageUrl, request.SourceAssetId, cancellationToken);
         }
 
         var input = new PolloInput
@@ -133,6 +138,7 @@ public sealed class GenerationService(
 
         var entity = new GenerationRequest
         {
+            UserId = userId,
             Kind = sourceUrl is null ? GenerationKind.Image : GenerationKind.ImageEdit,
             Role = nameof(PolloModelOptions.Still),
             Model = model,
@@ -145,15 +151,18 @@ public sealed class GenerationService(
         return await SubmitAsync(entity, input, cancellationToken);
     }
 
-    public async Task<GenerationRequest?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
+    // Both reads filter by UserId so one user can never fetch another's generation by id.
+    public async Task<GenerationRequest?> GetAsync(Guid userId, Guid id, CancellationToken cancellationToken = default) =>
         await db.GenerationRequests
             .Include(g => g.Assets)
-            .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(g => g.Id == id && g.UserId == userId, cancellationToken);
 
     public async Task<IReadOnlyList<GenerationRequest>> ListAsync(
+        Guid userId,
         int take = 50,
         CancellationToken cancellationToken = default) =>
         await db.GenerationRequests
+            .Where(g => g.UserId == userId)
             .Include(g => g.Assets)
             .OrderByDescending(g => g.CreatedUtc)
             .Take(Math.Clamp(take, 1, 200))
@@ -212,6 +221,7 @@ public sealed class GenerationService(
     /// to the internet. Failing here with an explanation beats failing at Pollo with a fetch error.
     /// </summary>
     private async Task<string> ResolveImageUrlAsync(
+        Guid userId,
         string? imageUrl,
         Guid? assetId,
         CancellationToken cancellationToken)
@@ -237,7 +247,9 @@ public sealed class GenerationService(
             throw new GenerationValidationException("Supply either imageUrl or assetId.");
         }
 
-        var asset = await db.MediaAssets.FirstOrDefaultAsync(a => a.Id == assetId, cancellationToken)
+        // Scoped by UserId: referencing another user's uploaded asset must look identical to
+        // the asset not existing, so ownership cannot be probed by guessing ids.
+        var asset = await db.MediaAssets.FirstOrDefaultAsync(a => a.Id == assetId && a.UserId == userId, cancellationToken)
                     ?? throw new GenerationValidationException($"Asset {assetId} was not found.");
 
         var publicUrl = assetStore.BuildPublicUrl(asset);

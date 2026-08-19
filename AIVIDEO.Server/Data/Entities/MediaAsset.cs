@@ -13,6 +13,9 @@ public class MediaAsset
 {
     public Guid Id { get; set; } = Guid.CreateVersion7();
 
+    /// <summary>Owner. Set directly for uploads (which have no generation) and copied from the generation otherwise.</summary>
+    public Guid UserId { get; set; }
+
     public Guid? GenerationRequestId { get; set; }
 
     public GenerationRequest? GenerationRequest { get; set; }

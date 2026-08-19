@@ -9,6 +9,8 @@ namespace AIVIDEO.Server.Data;
 /// </summary>
 public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(options)
 {
+    public DbSet<User> Users => Set<User>();
+
     public DbSet<GenerationRequest> GenerationRequests => Set<GenerationRequest>();
 
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
@@ -16,6 +18,14 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
+
+        modelBuilder.Entity<User>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Email is the login identifier; a unique index enforces one account per address
+            // and backs the lookup on every sign-in.
+            entity.HasIndex(e => e.Email).IsUnique();
+        });
 
         modelBuilder.Entity<GenerationRequest>(entity =>
         {
@@ -26,6 +36,8 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasIndex(e => new { e.Status, e.NextPollUtc });
             entity.HasIndex(e => e.PolloTaskId);
             entity.HasIndex(e => e.CreatedUtc);
+            // Every gallery query filters by owner, newest first.
+            entity.HasIndex(e => new { e.UserId, e.CreatedUtc });
 
             entity.Property(e => e.CostUsd).HasPrecision(18, 6);
             entity.Property(e => e.Credit).HasPrecision(18, 6);

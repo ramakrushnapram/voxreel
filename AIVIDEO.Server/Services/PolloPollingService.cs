@@ -165,6 +165,7 @@ public sealed class PolloPollingService(
             {
                 var kind = ParseAssetKind(result.MediaType);
                 var asset = await assetStore.SaveFromUrlAsync(result.Url!, kind, generation.Id, cancellationToken);
+                asset.UserId = generation.UserId;
                 db.MediaAssets.Add(asset);
 
                 // The cover frame doubles as a gallery thumbnail and a YouTube thumbnail
@@ -173,6 +174,7 @@ public sealed class PolloPollingService(
                 {
                     var cover = await assetStore.SaveFromUrlAsync(
                         result.Cover, AssetKind.Thumbnail, generation.Id, cancellationToken);
+                    cover.UserId = generation.UserId;
                     db.MediaAssets.Add(cover);
                 }
             }
