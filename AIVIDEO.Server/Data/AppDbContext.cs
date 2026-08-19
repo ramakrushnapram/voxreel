@@ -15,6 +15,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<MediaAsset> MediaAssets => Set<MediaAsset>();
 
+    public DbSet<Document> Documents => Set<Document>();
+
+    public DbSet<DocumentChunk> DocumentChunks => Set<DocumentChunk>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -53,6 +57,23 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasKey(e => e.Id);
             entity.HasIndex(e => e.GenerationRequestId);
             entity.HasIndex(e => e.CreatedUtc);
+        });
+
+        modelBuilder.Entity<Document>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.UserId, e.CreatedUtc });
+            entity.HasMany(e => e.Chunks)
+                  .WithOne(c => c.Document)
+                  .HasForeignKey(c => c.DocumentId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DocumentChunk>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            // Retrieval fetches all of a user's chunks to score in memory, so index by owner.
+            entity.HasIndex(e => e.UserId);
         });
     }
 

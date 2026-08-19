@@ -2,6 +2,7 @@ using System.Text;
 using AIVIDEO.Server.Configuration;
 using AIVIDEO.Server.Data;
 using AIVIDEO.Server.Infrastructure;
+using AIVIDEO.Server.Llm;
 using AIVIDEO.Server.Pollo;
 using AIVIDEO.Server.Providers;
 using AIVIDEO.Server.Services;
@@ -16,6 +17,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.Configure<PolloOptions>(builder.Configuration.GetSection(PolloOptions.SectionName));
 builder.Services.Configure<StorageOptions>(builder.Configuration.GetSection(StorageOptions.SectionName));
 builder.Services.Configure<JwtOptions>(builder.Configuration.GetSection(JwtOptions.SectionName));
+builder.Services.Configure<OllamaOptions>(builder.Configuration.GetSection(OllamaOptions.SectionName));
 
 // ---- Data (code-first, PostgreSQL) ----
 var connectionString = builder.Configuration.GetConnectionString("Default")
@@ -87,6 +89,14 @@ builder.Services.AddHttpClient<FreeImageProvider>(client =>
 
 builder.Services.AddScoped<GenerationService>();
 builder.Services.AddHostedService<PolloPollingService>();
+
+// ---- Local LLM (Ollama) + RAG ----
+var ollamaTimeout = builder.Configuration.GetSection(OllamaOptions.SectionName).Get<OllamaOptions>()?.TimeoutSeconds ?? 180;
+builder.Services.AddHttpClient<IOllamaClient, OllamaClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(ollamaTimeout);
+});
+builder.Services.AddScoped<LlmService>();
 
 // Database outages become a 503 with a readable message rather than a 500 with a stack trace.
 builder.Services.AddExceptionHandler<DatabaseExceptionHandler>();

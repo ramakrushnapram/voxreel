@@ -19,9 +19,25 @@ export default function ImageStudio({ status, onCreated }) {
     const [provider, setProvider] = useState('free');
     const [source, setSource] = useState(null);
     const [busy, setBusy] = useState(false);
+    const [enhancing, setEnhancing] = useState(false);
     const [error, setError] = useState(null);
 
     const editing = mode === 'edit';
+    const ollamaReady = status?.ollamaAvailable ?? false;
+
+    async function enhance() {
+        if (!prompt.trim()) return;
+        setEnhancing(true);
+        setError(null);
+        try {
+            const { enhanced } = await api.enhancePrompt(prompt.trim());
+            setPrompt(enhanced);
+        } catch (err) {
+            setError(err.message);
+        } finally {
+            setEnhancing(false);
+        }
+    }
     // Editing an existing image is a Pollo-only capability, so switching to edit forces Pollo.
     const effectiveProvider = editing ? 'pollo' : provider;
     const canSubmit = prompt.trim().length > 0 && (!editing || source) && !busy;
@@ -102,7 +118,18 @@ export default function ImageStudio({ status, onCreated }) {
             )}
 
             <label>
-                <span>{editing ? 'What should change?' : 'Prompt'}</span>
+                <span className="label-row">
+                    {editing ? 'What should change?' : 'Prompt'}
+                    <button
+                        type="button"
+                        className="mini-btn"
+                        onClick={enhance}
+                        disabled={enhancing || !prompt.trim() || !ollamaReady}
+                        title={ollamaReady ? 'Rewrite into a richer prompt with the local LLM' : 'Install Ollama to enable AI prompt enhancement'}
+                    >
+                        {enhancing ? 'Enhancing…' : '✨ Enhance with AI'}
+                    </button>
+                </span>
                 <textarea
                     rows={4}
                     value={prompt}

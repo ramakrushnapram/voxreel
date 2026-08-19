@@ -58,6 +58,13 @@ export const api = {
     imageToVideo: (body) => request('/api/generations/image-to-video', { method: 'POST', body: JSON.stringify(body) }),
     generateImage: (body) => request('/api/generations/image', { method: 'POST', body: JSON.stringify(body) }),
 
+    // ---- Local LLM (Ollama) + RAG ----
+    enhancePrompt: (prompt) => request('/api/llm/enhance-prompt', { method: 'POST', body: JSON.stringify({ prompt }) }),
+    generateScript: (body) => request('/api/llm/script', { method: 'POST', body: JSON.stringify(body) }),
+    listDocuments: () => request('/api/documents'),
+    createDocument: (name, text) => request('/api/documents', { method: 'POST', body: JSON.stringify({ name, text }) }),
+    deleteDocument: (id) => request(`/api/documents/${id}`, { method: 'DELETE' }),
+
     /** Multipart upload — Content-Type is omitted so the browser sets the boundary. */
     uploadImage: async (file) => {
         const form = new FormData();

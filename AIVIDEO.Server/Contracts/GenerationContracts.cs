@@ -161,6 +161,10 @@ public sealed record SystemStatusResponse
 
     public required bool PublicBaseUrlConfigured { get; init; }
 
+    public required bool OllamaAvailable { get; init; }
+
+    public IReadOnlyList<string> OllamaModels { get; init; } = [];
+
     public string? DatabaseError { get; init; }
 
     public required IReadOnlyDictionary<string, string> Models { get; init; }

@@ -3,12 +3,16 @@ import { api, isTerminal } from '../api';
 import ImageStudio from '../components/ImageStudio';
 import AnimatePanel from '../components/AnimatePanel';
 import QuickClipPanel from '../components/QuickClipPanel';
+import ScriptStudio from '../components/ScriptStudio';
+import KnowledgeStudio from '../components/KnowledgeStudio';
 import GenerationCard from '../components/GenerationCard';
 
 const TABS = [
     { id: 'image', label: 'Image Studio' },
     { id: 'animate', label: 'Animate' },
     { id: 'clip', label: 'Quick Clip' },
+    { id: 'script', label: 'Script Writer' },
+    { id: 'knowledge', label: 'Knowledge' },
 ];
 
 /** The signed-in workspace: generation panels plus a live-polling gallery of the user's own work. */
@@ -78,32 +82,39 @@ export default function Studio() {
                 ))}
             </nav>
 
-            <div className="layout">
-                <section className="controls">
-                    {tab === 'image' && <ImageStudio status={status} onCreated={handleCreated} />}
-                    {tab === 'animate' && <AnimatePanel status={status} onCreated={handleCreated} />}
-                    {tab === 'clip' && <QuickClipPanel status={status} onCreated={handleCreated} />}
-                </section>
+            {/* Script and Knowledge are LLM tools with their own full-width layout and no
+                generation gallery. */}
+            {tab === 'script' && <ScriptStudio status={status} />}
+            {tab === 'knowledge' && <KnowledgeStudio status={status} />}
 
-                <section className="gallery">
-                    <div className="gallery-head">
-                        <h2>Your generations</h2>
-                        <button className="link-button" onClick={refresh}>Refresh</button>
-                    </div>
+            {(tab === 'image' || tab === 'animate' || tab === 'clip') && (
+                <div className="layout">
+                    <section className="controls">
+                        {tab === 'image' && <ImageStudio status={status} onCreated={handleCreated} />}
+                        {tab === 'animate' && <AnimatePanel status={status} onCreated={handleCreated} />}
+                        {tab === 'clip' && <QuickClipPanel status={status} onCreated={handleCreated} />}
+                    </section>
 
-                    {galleryError && <p className="error">{galleryError}</p>}
+                    <section className="gallery">
+                        <div className="gallery-head">
+                            <h2>Your generations</h2>
+                            <button className="link-button" onClick={refresh}>Refresh</button>
+                        </div>
 
-                    {!galleryError && generations.length === 0 && (
-                        <p className="empty">Nothing yet. Submit something on the left.</p>
-                    )}
+                        {galleryError && <p className="error">{galleryError}</p>}
 
-                    <div className="grid">
-                        {generations.map((g) => (
-                            <GenerationCard key={g.id} generation={g} onDelete={handleDelete} />
-                        ))}
-                    </div>
-                </section>
-            </div>
+                        {!galleryError && generations.length === 0 && (
+                            <p className="empty">Nothing yet. Submit something on the left.</p>
+                        )}
+
+                        <div className="grid">
+                            {generations.map((g) => (
+                                <GenerationCard key={g.id} generation={g} onDelete={handleDelete} />
+                            ))}
+                        </div>
+                    </section>
+                </div>
+            )}
         </div>
     );
 }

@@ -1,6 +1,7 @@
 using AIVIDEO.Server.Configuration;
 using AIVIDEO.Server.Contracts;
 using AIVIDEO.Server.Data;
+using AIVIDEO.Server.Llm;
 using AIVIDEO.Server.Pollo;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -17,6 +18,7 @@ namespace AIVIDEO.Server.Controllers;
 [Route("api/system")]
 public sealed class SystemController(
     AppDbContext db,
+    IOllamaClient ollama,
     IOptionsMonitor<PolloOptions> polloOptions,
     IOptionsMonitor<StorageOptions> storageOptions) : ControllerBase
 {
@@ -25,6 +27,12 @@ public sealed class SystemController(
     {
         var pollo = polloOptions.CurrentValue;
         var storage = storageOptions.CurrentValue;
+
+        // Cheap reachability check; returns quickly whether or not Ollama is installed.
+        var ollamaAvailable = await ollama.IsAvailableAsync(cancellationToken);
+        var ollamaModels = ollamaAvailable
+            ? await ollama.ListModelsAsync(cancellationToken)
+            : [];
 
         bool databaseReachable;
         string? databaseError = null;
@@ -49,6 +57,8 @@ public sealed class SystemController(
             DatabaseReachable = databaseReachable,
             DatabaseError = databaseError,
             PublicBaseUrlConfigured = storage.HasPublicBaseUrl,
+            OllamaAvailable = ollamaAvailable,
+            OllamaModels = ollamaModels,
             Models = new Dictionary<string, string>
             {
                 ["Hero"] = pollo.Models.Hero,
