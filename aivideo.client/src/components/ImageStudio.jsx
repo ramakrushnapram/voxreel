@@ -14,11 +14,16 @@ export default function ImageStudio({ status, onCreated }) {
     const [prompt, setPrompt] = useState('');
     const [aspectRatio, setAspectRatio] = useState('16:9');
     const [resolution, setResolution] = useState('1K');
+    // Default to the free provider: it works with no key and no cost. Pollo is opt-in and
+    // needs a key with credits (an empty Pollo balance returns 403).
+    const [provider, setProvider] = useState('free');
     const [source, setSource] = useState(null);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
 
     const editing = mode === 'edit';
+    // Editing an existing image is a Pollo-only capability, so switching to edit forces Pollo.
+    const effectiveProvider = editing ? 'pollo' : provider;
     const canSubmit = prompt.trim().length > 0 && (!editing || source) && !busy;
 
     async function submit(event) {
@@ -31,6 +36,7 @@ export default function ImageStudio({ status, onCreated }) {
                 prompt: prompt.trim(),
                 aspectRatio,
                 resolution,
+                provider: effectiveProvider,
                 sourceAssetId: editing ? source?.assetId ?? null : null,
                 sourceImageUrl: editing ? source?.imageUrl ?? null : null,
             });
@@ -67,6 +73,22 @@ export default function ImageStudio({ status, onCreated }) {
                 </button>
             </div>
 
+            {!editing && (
+                <label>
+                    <span>Provider</span>
+                    <select value={provider} onChange={(e) => setProvider(e.target.value)}>
+                        <option value="free">Free — Pollinations (no key, $0)</option>
+                        <option value="pollo">Pollo — your key (needs credits)</option>
+                    </select>
+                    {provider === 'pollo' && !status?.polloConfigured && (
+                        <em className="warn-inline">No Pollo key on the server — this will fail. Use Free.</em>
+                    )}
+                    {provider === 'free' && (
+                        <em className="hint">Uses the open Flux model. Free and unlimited, no key needed.</em>
+                    )}
+                </label>
+            )}
+
             {editing && (
                 <label>
                     <span>Source image</span>
@@ -75,6 +97,7 @@ export default function ImageStudio({ status, onCreated }) {
                         onChange={setSource}
                         publicBaseUrlConfigured={status?.publicBaseUrlConfigured ?? false}
                     />
+                    <em className="hint">Image editing uses Pollo and needs a key with credits.</em>
                 </label>
             )}
 

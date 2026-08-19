@@ -3,6 +3,7 @@ using AIVIDEO.Server.Configuration;
 using AIVIDEO.Server.Data;
 using AIVIDEO.Server.Infrastructure;
 using AIVIDEO.Server.Pollo;
+using AIVIDEO.Server.Providers;
 using AIVIDEO.Server.Services;
 using AIVIDEO.Server.Storage;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -76,6 +77,14 @@ builder.Services.AddAuthorization();
 
 // ---- Application services ----
 builder.Services.AddScoped<IAssetStore, LocalAssetStore>();
+
+// The free image provider (Pollinations) is synchronous and can take 30s+, so its client
+// gets a generous timeout independent of the Pollo client.
+builder.Services.AddHttpClient<FreeImageProvider>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(120);
+});
+
 builder.Services.AddScoped<GenerationService>();
 builder.Services.AddHostedService<PolloPollingService>();
 

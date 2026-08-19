@@ -59,10 +59,16 @@ public sealed record CreateImageRequest
     /// <summary>"1K" | "2K" | "4K".</summary>
     public string Resolution { get; init; } = "1K";
 
-    /// <summary>Supplying either of these switches the model from generation into edit mode.</summary>
+    /// <summary>Supplying either of these switches the model from generation into edit mode (Pollo only).</summary>
     public string? SourceImageUrl { get; init; }
 
     public Guid? SourceAssetId { get; init; }
+
+    /// <summary>
+    /// "auto" (default): use the free provider when no Pollo key is set, otherwise Pollo.
+    /// "free": always use the no-cost provider. "pollo": require the paid Pollo model.
+    /// </summary>
+    public string Provider { get; init; } = "auto";
 }
 
 public sealed record GenerationResponse

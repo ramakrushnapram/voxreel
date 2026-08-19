@@ -4,6 +4,7 @@ using AIVIDEO.Server.Contracts;
 using AIVIDEO.Server.Data;
 using AIVIDEO.Server.Data.Entities;
 using AIVIDEO.Server.Pollo;
+using AIVIDEO.Server.Providers;
 using AIVIDEO.Server.Storage;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
@@ -28,6 +29,7 @@ public sealed class GenerationService(
     AppDbContext db,
     IPolloClient polloClient,
     IAssetStore assetStore,
+    FreeImageProvider freeImageProvider,
     IOptionsMonitor<PolloOptions> polloOptions,
     ILogger<GenerationService> logger)
 {
@@ -118,10 +120,26 @@ public sealed class GenerationService(
         CancellationToken cancellationToken = default)
     {
         var opts = polloOptions.CurrentValue;
+
+        var hasSource = request.SourceAssetId is not null || !string.IsNullOrWhiteSpace(request.SourceImageUrl);
+
+        if (UseFreeProvider(request.Provider, opts.IsConfigured))
+        {
+            // The free provider is text-to-image only; editing an existing image needs Pollo.
+            if (hasSource)
+            {
+                throw new GenerationValidationException(
+                    "Editing an uploaded image needs a Pollo API key. The free provider generates from a prompt only. " +
+                    "Set Provider to \"pollo\" with a key configured, or remove the source image.");
+            }
+
+            return await CreateFreeImageAsync(userId, request, cancellationToken);
+        }
+
         var model = opts.Models.Still;
 
         string? sourceUrl = null;
-        if (request.SourceAssetId is not null || !string.IsNullOrWhiteSpace(request.SourceImageUrl))
+        if (hasSource)
         {
             sourceUrl = await ResolveImageUrlAsync(userId, request.SourceImageUrl, request.SourceAssetId, cancellationToken);
         }
@@ -167,6 +185,68 @@ public sealed class GenerationService(
             .OrderByDescending(g => g.CreatedUtc)
             .Take(Math.Clamp(take, 1, 200))
             .ToListAsync(cancellationToken);
+
+    /// <summary>
+    /// "auto" picks free when Pollo is not configured; "free" always uses it; "pollo" never does.
+    /// The auto behaviour is what makes image generation work out of the box with no key.
+    /// </summary>
+    private static bool UseFreeProvider(string provider, bool polloConfigured) => provider.ToLowerInvariant() switch
+    {
+        "free" => true,
+        "pollo" => false,
+        _ => !polloConfigured
+    };
+
+    /// <summary>
+    /// Free path (Pollinations). Synchronous: the image is fetched and saved within the call,
+    /// so the row is created already Succeeded rather than left for the poller. On failure the
+    /// row is kept as Failed with the reason, matching the Pollo path's behaviour.
+    /// </summary>
+    private async Task<GenerationRequest> CreateFreeImageAsync(
+        Guid userId,
+        CreateImageRequest request,
+        CancellationToken cancellationToken)
+    {
+        var entity = new GenerationRequest
+        {
+            UserId = userId,
+            Kind = GenerationKind.Image,
+            Role = nameof(PolloModelOptions.Still),
+            Model = FreeImageProvider.ModelName,
+            Prompt = request.Prompt,
+            Resolution = request.Resolution,
+            AspectRatio = request.AspectRatio,
+            CostUsd = 0m,
+            RequestJson = "{\"provider\":\"free\"}"
+        };
+
+        // Generate before touching the database, then persist the row exactly once with the
+        // asset already attached. A single INSERT (rather than insert-then-update) is both
+        // simpler and avoids a concurrency fault when the same row is updated moments later.
+        try
+        {
+            // Vary the seed per row so repeated prompts don't return a CDN-cached image.
+            var seed = (int)(entity.Id.GetHashCode() & 0x7fffffff);
+            var asset = await freeImageProvider.GenerateAsync(
+                request.Prompt, request.AspectRatio, request.Resolution, userId, seed, cancellationToken);
+
+            asset.GenerationRequestId = entity.Id;
+            entity.Assets.Add(asset);
+            entity.Status = GenerationStatus.Succeeded;
+            entity.CompletedUtc = DateTimeOffset.UtcNow;
+        }
+        catch (Exception ex)
+        {
+            entity.Status = GenerationStatus.Failed;
+            entity.FailMessage = ex.Message;
+            entity.CompletedUtc = DateTimeOffset.UtcNow;
+            logger.LogWarning(ex, "Free image generation failed for {Id}.", entity.Id);
+        }
+
+        db.GenerationRequests.Add(entity);
+        await db.SaveChangesAsync(cancellationToken);
+        return entity;
+    }
 
     private async Task<GenerationRequest> SubmitAsync(
         GenerationRequest entity,
