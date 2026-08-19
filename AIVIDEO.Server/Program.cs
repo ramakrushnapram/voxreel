@@ -34,24 +34,41 @@ builder.Services.AddHttpClient<IPolloClient, PolloClient>(client =>
 });
 
 // ---- Auth ----
-// The signing key is required. Rather than fail to boot (which would take down the whole
-// site, including the pages that explain the problem), a development fallback key is
-// generated so the app runs; tokens simply don't survive a restart. Production must supply
-// a real Jwt:Key — enforced below.
+// The signing key must exist for auth to work. Previously the app threw on startup when no
+// Jwt:Key was set outside Development — which crashed a fresh clone's backend (the key lives
+// in user-secrets, never committed) and surfaced to users as a 502 on registration.
+//
+// Instead, when no key is configured we generate one and persist it to a gitignored file next
+// to the app, so a clone runs with zero configuration AND sessions survive restarts (a random
+// per-boot key would log everyone out on every restart). Setting Jwt:Key explicitly via
+// user-secrets or an environment variable still takes precedence and is recommended for
+// production.
 var jwtSection = builder.Configuration.GetSection(JwtOptions.SectionName);
 var jwt = jwtSection.Get<JwtOptions>() ?? new JwtOptions();
 
 if (!jwt.IsConfigured)
 {
-    if (builder.Environment.IsDevelopment())
+    var keyFile = Path.Combine(builder.Environment.ContentRootPath, ".jwtkey");
+    string key;
+    if (File.Exists(keyFile))
     {
-        jwt.Key = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(48));
-        builder.Services.Configure<JwtOptions>(o => o.Key = jwt.Key);
+        key = File.ReadAllText(keyFile).Trim();
     }
     else
     {
-        throw new InvalidOperationException(
-            "Jwt:Key is not configured. Set a key of at least 32 characters via user-secrets or environment variables.");
+        key = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(48));
+        try { File.WriteAllText(keyFile, key); } catch { /* read-only FS: fall back to an in-memory key for this run */ }
+    }
+
+    jwt.Key = key;
+    builder.Services.Configure<JwtOptions>(o => o.Key = key);
+
+    if (!builder.Environment.IsDevelopment())
+    {
+        // Not fatal, but worth flagging: a generated key is fine for a personal deploy, less so
+        // for a shared production one where the key should be managed as a real secret.
+        Console.WriteLine("[warn] Jwt:Key was not configured; using a generated key from .jwtkey. " +
+                          "Set Jwt:Key explicitly for production.");
     }
 }
 

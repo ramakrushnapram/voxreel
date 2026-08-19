@@ -45,6 +45,9 @@ secrets.json
 .env
 .env.*
 !.env.example
+# Auto-generated JWT signing key (created at first run when Jwt:Key is unset)
+.jwtkey
+**/.jwtkey
 
 # ---- Logs / temp ----
 *.log
