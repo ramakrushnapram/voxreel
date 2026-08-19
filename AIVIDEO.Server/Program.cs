@@ -1,5 +1,6 @@
 using AIVIDEO.Server.Configuration;
 using AIVIDEO.Server.Data;
+using AIVIDEO.Server.Infrastructure;
 using AIVIDEO.Server.Pollo;
 using AIVIDEO.Server.Services;
 using AIVIDEO.Server.Storage;
@@ -29,6 +30,10 @@ builder.Services.AddHttpClient<IPolloClient, PolloClient>(client =>
 builder.Services.AddScoped<IAssetStore, LocalAssetStore>();
 builder.Services.AddScoped<GenerationService>();
 builder.Services.AddHostedService<PolloPollingService>();
+
+// Database outages become a 503 with a readable message rather than a 500 with a stack trace.
+builder.Services.AddExceptionHandler<DatabaseExceptionHandler>();
+builder.Services.AddProblemDetails();
 
 builder.Services.AddControllers();
 builder.Services.AddOpenApi();
@@ -62,6 +67,8 @@ if (app.Environment.IsDevelopment())
         logger.LogError(ex, "Could not apply migrations. The API will start, but database-backed endpoints will fail.");
     }
 }
+
+app.UseExceptionHandler();
 
 app.UseDefaultFiles();
 app.MapStaticAssets();

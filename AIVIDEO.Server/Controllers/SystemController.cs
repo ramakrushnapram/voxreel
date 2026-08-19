@@ -40,7 +40,7 @@ public sealed class SystemController(
         catch (Exception ex)
         {
             databaseReachable = false;
-            databaseError = ex.Message;
+            databaseError = Summarise(ex);
         }
 
         return Ok(new SystemStatusResponse
@@ -60,5 +60,26 @@ public sealed class SystemController(
             AllowedClipLengths = PolloLimits.AllowedLengths,
             MaxClipSeconds = PolloLimits.MaxClipSeconds
         });
+    }
+
+    /// <summary>
+    /// Reduces a driver exception to one actionable line.
+    ///
+    /// Npgsql's Message property carries the whole stack trace, which rendered into the UI
+    /// banner is unreadable and exposes connection internals. Only the first line is useful,
+    /// and the common auth failure gets a concrete next step instead of a raw SQLSTATE.
+    /// </summary>
+    private static string Summarise(Exception ex)
+    {
+        var firstLine = ex.Message.Split('\n', StringSplitOptions.RemoveEmptyEntries)
+            .FirstOrDefault()?.Trim() ?? "Unknown database error.";
+
+        if (firstLine.Contains("28P01", StringComparison.Ordinal) ||
+            firstLine.Contains("password authentication failed", StringComparison.OrdinalIgnoreCase))
+        {
+            return "PostgreSQL rejected the credentials. Update the password in ConnectionStrings:Default.";
+        }
+
+        return firstLine.Length > 200 ? firstLine[..200] + "…" : firstLine;
     }
 }
