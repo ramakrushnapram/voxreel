@@ -16,6 +16,8 @@ public sealed record CreateVideoProjectRequest
     public string AspectRatio { get; init; } = "16:9";
 
     public bool UseRag { get; init; }
+
+    public bool BackgroundMusic { get; init; } = true;
 }
 
 public sealed record SceneResponse

@@ -79,6 +79,49 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
         await RunExpectingSuccessAsync(args, TimeSpan.FromMinutes(5), cancellationToken);
     }
 
+    /// <summary>
+    /// Synthesizes a soft ambient music bed of the given length — a low three-note chord pad
+    /// with slow tremolo, a lowpass to take the edge off, and a touch of echo for space.
+    /// Generated rather than sourced so there are no licensing concerns and no bundled files.
+    /// </summary>
+    public async Task GenerateMusicBedAsync(double seconds, string outputPath, CancellationToken cancellationToken)
+    {
+        var d = seconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        // A minor-ish triad an octave-plus down: calm, unobtrusive, sits under speech.
+        string[] args =
+        [
+            "-y",
+            "-f", "lavfi", "-i", $"sine=frequency=130.81:duration={d}",
+            "-f", "lavfi", "-i", $"sine=frequency=164.81:duration={d}",
+            "-f", "lavfi", "-i", $"sine=frequency=196.00:duration={d}",
+            "-filter_complex",
+            "[0][1][2]amix=inputs=3:normalize=0,volume=0.12,tremolo=f=0.08:d=0.5,lowpass=f=750,aecho=0.8:0.7:60:0.35,afade=t=in:d=2,afade=t=out:st=" +
+                (seconds - 2).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture) + ":d=2[a]",
+            "-map", "[a]", "-ar", "44100", "-ac", "2",
+            outputPath
+        ];
+        await RunExpectingSuccessAsync(args, TimeSpan.FromMinutes(2), cancellationToken);
+    }
+
+    /// <summary>
+    /// Mixes narration over a music bed with sidechain ducking: the music automatically drops
+    /// while the voice is speaking and swells back in the gaps. Output is a single audio file.
+    /// </summary>
+    public async Task MixNarrationWithMusicAsync(string narrationPath, string musicPath, string outputPath, CancellationToken cancellationToken)
+    {
+        string[] args =
+        [
+            "-y", "-i", narrationPath, "-i", musicPath,
+            "-filter_complex",
+            // [1] music is keyed by [0] narration: louder voice -> more attenuation.
+            "[1:a]volume=0.9[m];" +
+            "[m][0:a]sidechaincompress=threshold=0.02:ratio=8:attack=20:release=500[duck];" +
+            "[0:a][duck]amix=inputs=2:duration=first:normalize=0[a]",
+            "-map", "[a]", "-c:a", "pcm_s16le", outputPath
+        ];
+        await RunExpectingSuccessAsync(args, TimeSpan.FromMinutes(3), cancellationToken);
+    }
+
     /// <summary>Muxes the video track with the narration into the final MP4.</summary>
     public async Task MuxAsync(string videoPath, string audioPath, string outputPath, CancellationToken cancellationToken)
     {

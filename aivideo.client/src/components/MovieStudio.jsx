@@ -24,6 +24,7 @@ export default function MovieStudio({ status }) {
     const [minutes, setMinutes] = useState(1);
     const [aspectRatio, setAspectRatio] = useState('16:9');
     const [useRag, setUseRag] = useState(false);
+    const [music, setMusic] = useState(true);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const [projects, setProjects] = useState([]);
@@ -58,6 +59,7 @@ export default function MovieStudio({ status }) {
                 targetMinutes: Number(minutes),
                 aspectRatio,
                 useRag,
+                backgroundMusic: music,
             });
             setTopic('');
             setTitle('');
@@ -116,6 +118,10 @@ export default function MovieStudio({ status }) {
                         </select>
                     </label>
                 </div>
+                <label className="check">
+                    <input type="checkbox" checked={music} onChange={(e) => setMusic(e.target.checked)} />
+                    <span>Background music<em>A soft ambient bed, ducked under the narration.</em></span>
+                </label>
                 <label className="check">
                     <input type="checkbox" checked={useRag} onChange={(e) => setUseRag(e.target.checked)} />
                     <span>Ground in my documents (RAG)<em>Uses the Knowledge tab's material.</em></span>

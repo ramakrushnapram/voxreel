@@ -46,6 +46,9 @@ public class VideoProject
     /// <summary>Ground scene planning/script in the user's RAG documents.</summary>
     public bool UseRag { get; set; }
 
+    /// <summary>Mix a synthesized ambient music bed under the narration (ducked when the voice plays).</summary>
+    public bool BackgroundMusic { get; set; } = true;
+
     public string ScriptText { get; set; } = string.Empty;
 
     public VideoProjectStatus Status { get; set; } = VideoProjectStatus.Draft;

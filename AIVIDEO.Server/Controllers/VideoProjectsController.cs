@@ -30,6 +30,7 @@ public sealed class VideoProjectsController(
             TargetMinutes = Math.Clamp(request.TargetMinutes, 1, 20),
             AspectRatio = request.AspectRatio,
             UseRag = request.UseRag,
+            BackgroundMusic = request.BackgroundMusic,
             Status = VideoProjectStatus.Draft
         };
 

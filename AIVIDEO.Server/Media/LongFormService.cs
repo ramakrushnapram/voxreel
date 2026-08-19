@@ -194,12 +194,34 @@ public sealed partial class LongFormService(
         }
 
         var videoTrack = Path.Combine(workDir, "video.mp4");
-        var audioTrack = Path.Combine(workDir, "audio.wav");
+        var narrationTrack = Path.Combine(workDir, "narration.wav");
         var finalPath = Path.Combine(workDir, "final.mp4");
 
         await ffmpeg.ConcatAsync(clipPaths, Path.Combine(workDir, "clips.txt"), videoTrack, cancellationToken);
-        await ffmpeg.ConcatAudioAsync(wavPaths, Path.Combine(workDir, "audio.txt"), audioTrack, cancellationToken);
-        await ffmpeg.MuxAsync(videoTrack, audioTrack, finalPath, cancellationToken);
+        await ffmpeg.ConcatAudioAsync(wavPaths, Path.Combine(workDir, "audio.txt"), narrationTrack, cancellationToken);
+
+        // Optionally lay a synthesized ambient bed under the narration (ducked when the voice
+        // plays). Falls back to narration-only if music generation fails — music is a nicety,
+        // not worth failing the whole render over.
+        var finalAudioTrack = narrationTrack;
+        if (project.BackgroundMusic)
+        {
+            try
+            {
+                var totalSeconds = Math.Max(2.0, project.Scenes.Sum(s => s.DurationMs) / 1000.0);
+                var musicPath = Path.Combine(workDir, "music.wav");
+                var mixedPath = Path.Combine(workDir, "mixed.wav");
+                await ffmpeg.GenerateMusicBedAsync(totalSeconds, musicPath, cancellationToken);
+                await ffmpeg.MixNarrationWithMusicAsync(narrationTrack, musicPath, mixedPath, cancellationToken);
+                finalAudioTrack = mixedPath;
+            }
+            catch (Exception ex)
+            {
+                logger.LogWarning(ex, "Background music failed for {Id}; using narration only.", project.Id);
+            }
+        }
+
+        await ffmpeg.MuxAsync(videoTrack, finalAudioTrack, finalPath, cancellationToken);
 
         // Register the finished MP4 as an asset the user can stream and download.
         await using var stream = File.OpenRead(finalPath);
