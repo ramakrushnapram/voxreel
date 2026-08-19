@@ -56,6 +56,10 @@ public class VideoProject
     /// <summary>Burn the narration into the video as on-screen captions.</summary>
     public bool Subtitles { get; set; } = true;
 
+    /// <summary>"high" (1080p, slower) or "draft" (720p, fast preview).</summary>
+    [MaxLength(16)]
+    public string Quality { get; set; } = "high";
+
     public string ScriptText { get; set; } = string.Empty;
 
     public VideoProjectStatus Status { get; set; } = VideoProjectStatus.Draft;

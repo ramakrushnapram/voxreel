@@ -149,6 +149,8 @@ public sealed partial class LongFormService(
         var done = 0;
 
         var styleModifier = StyleModifier(project.VisualStyle);
+        // Draft uses lighter 1K images (faster to generate and encode); high uses 2K for detail.
+        var imageResolution = string.Equals(project.Quality, "draft", StringComparison.OrdinalIgnoreCase) ? "1K" : "2K";
 
         foreach (var scene in project.Scenes.OrderBy(s => s.Index))
         {
@@ -156,11 +158,9 @@ public sealed partial class LongFormService(
             // Append the chosen style so every scene shares one consistent look.
             scene.VisualPrompt = string.IsNullOrEmpty(styleModifier) ? described : $"{described}. {styleModifier}";
 
-            // Free provider only, for now — a long video at Pollo image rates would be costly.
-            // Generate at 2K so there's real detail to zoom into without the picture going soft.
             var seed = (int)(scene.Id.GetHashCode() & 0x7fffffff);
             var asset = await freeImage.GenerateAsync(
-                scene.VisualPrompt, project.AspectRatio, "2K", project.UserId, seed, cancellationToken);
+                scene.VisualPrompt, project.AspectRatio, imageResolution, project.UserId, seed, cancellationToken);
             asset.GenerationRequestId = null;
             db.MediaAssets.Add(asset);
             scene.ImageAssetId = asset.Id;
@@ -179,7 +179,10 @@ public sealed partial class LongFormService(
         await SaveAsync(project, cancellationToken);
 
         var workDir = WorkDir(project.Id);
-        var (width, height) = Dimensions(project.AspectRatio);
+        var draft = string.Equals(project.Quality, "draft", StringComparison.OrdinalIgnoreCase);
+        var (width, height) = Dimensions(project.AspectRatio, draft);
+        // Draft trades quality for speed: faster preset, higher CRF (more compression).
+        var (encPreset, encCrf) = draft ? ("veryfast", "24") : ("medium", "18");
 
         // Crossfade duration. Each clip is rendered this much longer than its scene so the
         // overlaps don't steal narration time; keep it short so brief scenes still work.
@@ -205,7 +208,7 @@ public sealed partial class LongFormService(
             var sceneSeconds = Math.Max(1.0, scene.DurationMs / 1000.0);
             var clipLength = sceneSeconds + transition;   // extra tail absorbed by the crossfade
             // Vary the motion per scene so consecutive shots don't all move the same way.
-            await ffmpeg.KenBurnsAsync(imagePath, clipPath, clipLength, width, height, scene.Index, cancellationToken);
+            await ffmpeg.KenBurnsAsync(imagePath, clipPath, clipLength, width, height, scene.Index, encPreset, encCrf, cancellationToken);
             clipPaths.Add(clipPath);
             clipSeconds.Add(clipLength);
             wavPaths.Add(wavPath);
@@ -230,7 +233,7 @@ public sealed partial class LongFormService(
         try
         {
             var titleText = string.IsNullOrWhiteSpace(project.Title) ? project.Topic : project.Title;
-            await ffmpeg.MakeTitleCardAsync(titleText, firstImage, titleSeconds + transition, width, height, workDir, titleClip, cancellationToken);
+                await ffmpeg.MakeTitleCardAsync(titleText, firstImage, titleSeconds + transition, width, height, workDir, titleClip, cancellationToken);
             clipPaths.Insert(0, titleClip);
             clipSeconds.Insert(0, titleSeconds + transition);
             titleOffset = titleSeconds;
@@ -243,7 +246,7 @@ public sealed partial class LongFormService(
         // If subtitles are on, the burn step re-encodes this track — so render it fast here and
         // let that pass set final quality. If not, this track is final, so render it at quality.
         await ffmpeg.ConcatWithTransitionsAsync(
-            clipPaths, clipSeconds, transition, videoTrack, fastIntermediate: project.Subtitles, cancellationToken);
+            clipPaths, clipSeconds, transition, videoTrack, fastIntermediate: project.Subtitles, encPreset, encCrf, cancellationToken);
         await ffmpeg.ConcatAudioAsync(wavPaths, Path.Combine(workDir, "audio.txt"), narrationTrack, cancellationToken);
 
         // Delay the narration so it begins when the title card ends.
@@ -284,7 +287,7 @@ public sealed partial class LongFormService(
             {
                 var srtPath = Path.Combine(workDir, "captions.srt");
                 await File.WriteAllTextAsync(srtPath, BuildSrt(project.Scenes.OrderBy(s => s.Index), titleOffset), cancellationToken);
-                await ffmpeg.BurnSubtitlesAndMuxAsync(videoTrack, finalAudioTrack, srtPath, finalPath, cancellationToken);
+                await ffmpeg.BurnSubtitlesAndMuxAsync(videoTrack, finalAudioTrack, srtPath, finalPath, encPreset, encCrf, cancellationToken);
             }
             catch (Exception ex)
             {
@@ -378,11 +381,14 @@ public sealed partial class LongFormService(
         await db.SaveChangesAsync(cancellationToken);
     }
 
-    // 1080p output: 720p looked soft, especially once scaled up in a browser player.
-    private static (int Width, int Height) Dimensions(string aspectRatio) => aspectRatio switch
+    // High quality is 1080p; draft is 720p for a faster preview.
+    private static (int Width, int Height) Dimensions(string aspectRatio, bool draft) => (aspectRatio, draft) switch
     {
-        "9:16" => (1080, 1920),
-        "1:1" => (1080, 1080),
+        ("9:16", true) => (720, 1280),
+        ("9:16", false) => (1080, 1920),
+        ("1:1", true) => (720, 720),
+        ("1:1", false) => (1080, 1080),
+        (_, true) => (1280, 720),
         _ => (1920, 1080)
     };
 

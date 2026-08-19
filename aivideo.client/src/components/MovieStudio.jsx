@@ -29,6 +29,7 @@ export default function MovieStudio({ status }) {
     const [useRag, setUseRag] = useState(false);
     const [music, setMusic] = useState(true);
     const [subtitles, setSubtitles] = useState(true);
+    const [draft, setDraft] = useState(false);
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState(null);
     const [projects, setProjects] = useState([]);
@@ -67,6 +68,7 @@ export default function MovieStudio({ status }) {
                 useRag,
                 backgroundMusic: music,
                 subtitles,
+                quality: draft ? 'draft' : 'high',
             });
             setTopic('');
             setTitle('');
@@ -167,6 +169,10 @@ export default function MovieStudio({ status }) {
                 <label className="check">
                     <input type="checkbox" checked={subtitles} onChange={(e) => setSubtitles(e.target.checked)} />
                     <span>Burn-in subtitles<em>On-screen captions timed to the narration.</em></span>
+                </label>
+                <label className="check">
+                    <input type="checkbox" checked={draft} onChange={(e) => setDraft(e.target.checked)} />
+                    <span>Draft (fast preview)<em>720p and faster encoding — quicker to make, lower quality.</em></span>
                 </label>
                 <label className="check">
                     <input type="checkbox" checked={useRag} onChange={(e) => setUseRag(e.target.checked)} />

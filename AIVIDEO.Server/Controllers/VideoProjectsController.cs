@@ -45,6 +45,7 @@ public sealed class VideoProjectsController(
             UseRag = request.UseRag,
             BackgroundMusic = request.BackgroundMusic,
             Subtitles = request.Subtitles,
+            Quality = string.Equals(request.Quality, "draft", StringComparison.OrdinalIgnoreCase) ? "draft" : "high",
             Status = VideoProjectStatus.Draft
         };
 

@@ -31,6 +31,9 @@ public sealed record CreateVideoProjectRequest
     public bool BackgroundMusic { get; init; } = true;
 
     public bool Subtitles { get; init; } = true;
+
+    /// <summary>"high" (1080p) or "draft" (720p, faster).</summary>
+    public string Quality { get; init; } = "high";
 }
 
 public sealed record SceneResponse

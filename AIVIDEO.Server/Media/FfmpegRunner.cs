@@ -32,7 +32,7 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
     /// consecutive scenes don't all drift the same way, which is what made it feel static.
     /// Output is normalised (codec/fps/SAR/pixel format) so clips crossfade and concatenate cleanly.
     /// </summary>
-    public async Task KenBurnsAsync(string imagePath, string outputPath, double seconds, int width, int height, int motionIndex, CancellationToken cancellationToken)
+    public async Task KenBurnsAsync(string imagePath, string outputPath, double seconds, int width, int height, int motionIndex, string preset, string crf, CancellationToken cancellationToken)
     {
         var frames = Math.Max(1, (int)Math.Round(seconds * 25));
         var f = frames.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -63,8 +63,7 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
         string[] args =
         [
             "-y", "-loop", "1", "-i", imagePath, "-t", seconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture),
-            // preset medium + crf 18 = visibly sharper than veryfast/crf20, still fast enough for stills.
-            "-vf", vf, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+            "-vf", vf, "-c:v", "libx264", "-preset", preset, "-crf", crf, "-pix_fmt", "yuv420p",
             outputPath
         ];
 
@@ -88,9 +87,13 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
         double transitionSeconds,
         string outputPath,
         bool fastIntermediate,
+        string finalPreset,
+        string finalCrf,
         CancellationToken cancellationToken)
     {
-        var (preset, crf) = fastIntermediate ? ("ultrafast", "23") : ("medium", "18");
+        // When this output is re-encoded downstream (subtitle burn), render it throwaway-fast;
+        // otherwise it's the final track, so use the render's chosen quality.
+        var (preset, crf) = fastIntermediate ? ("ultrafast", "23") : (finalPreset, finalCrf);
 
         if (clipPaths.Count == 1)
         {
@@ -271,7 +274,7 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
     /// text can't be a stream copy). The subtitle path is escaped for the libass filter, whose
     /// parser treats backslashes and the drive colon specially on Windows.
     /// </summary>
-    public async Task BurnSubtitlesAndMuxAsync(string videoPath, string audioPath, string srtPath, string outputPath, CancellationToken cancellationToken)
+    public async Task BurnSubtitlesAndMuxAsync(string videoPath, string audioPath, string srtPath, string outputPath, string preset, string crf, CancellationToken cancellationToken)
     {
         var escaped = srtPath.Replace('\\', '/').Replace(":", "\\:");
         var style = "FontSize=22,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,Outline=2,Shadow=1,MarginV=40";
@@ -280,7 +283,7 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
             "-y", "-i", videoPath, "-i", audioPath,
             "-filter_complex", $"[0:v]subtitles='{escaped}':force_style='{style}'[v]",
             "-map", "[v]", "-map", "1:a:0",
-            "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", "-preset", preset, "-crf", crf, "-pix_fmt", "yuv420p",
             "-c:a", "aac", "-b:a", "192k", "-shortest", outputPath
         ];
         await RunExpectingSuccessAsync(args, TimeSpan.FromMinutes(10), cancellationToken);
