@@ -102,10 +102,11 @@ var storage = app.Services.GetRequiredService<Microsoft.Extensions.Options.IOpti
 Directory.CreateDirectory(Path.GetFullPath(storage.Root));
 
 // ---- Migrations ----
-// Applied automatically in development only. In any other environment migrations are a
-// deploy step, because an app instance silently altering a shared schema at startup is how
-// concurrent deploys corrupt a database.
-if (app.Environment.IsDevelopment())
+// Applied on startup in every environment. MigrateAsync also creates the database itself if
+// it does not yet exist, so a fresh clone with a valid connection string comes up with the
+// full schema and working registration/login — no manual "dotnet ef database update" step.
+// (This is a single-instance, clone-and-run app; the usual caution about many instances
+// racing to migrate a shared database does not apply here.)
 {
     using var scope = app.Services.CreateScope();
     var db = scope.ServiceProvider.GetRequiredService<AppDbContext>();
@@ -114,14 +115,16 @@ if (app.Environment.IsDevelopment())
     try
     {
         await db.Database.MigrateAsync();
-        logger.LogInformation("Database migrations applied.");
+        logger.LogInformation("Database is ready (schema created/updated).");
     }
     catch (Exception ex)
     {
         // Starting anyway is deliberate: /api/system/status reports the database as
         // unreachable and the UI explains how to fix it, which beats a startup crash
-        // with a stack trace and no guidance.
-        logger.LogError(ex, "Could not apply migrations. The API will start, but database-backed endpoints will fail.");
+        // with a stack trace and no guidance. The most common cause on a fresh clone is a
+        // wrong password in ConnectionStrings:Default — set it via user-secrets or setup.ps1.
+        logger.LogError(ex, "Could not reach or migrate the database. The API will start, but " +
+            "registration/login and generations will fail until ConnectionStrings:Default is correct.");
     }
 }
 
