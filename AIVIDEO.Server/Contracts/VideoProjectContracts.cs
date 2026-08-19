@@ -23,6 +23,9 @@ public sealed record CreateVideoProjectRequest
 
     public string AspectRatio { get; init; } = "16:9";
 
+    /// <summary>cinematic | photorealistic | cartoon | anime | 3d | watercolor | storybook</summary>
+    public string VisualStyle { get; init; } = "cinematic";
+
     public bool UseRag { get; init; }
 
     public bool BackgroundMusic { get; init; } = true;

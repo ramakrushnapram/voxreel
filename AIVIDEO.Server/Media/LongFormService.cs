@@ -148,9 +148,13 @@ public sealed partial class LongFormService(
         var count = project.Scenes.Count;
         var done = 0;
 
+        var styleModifier = StyleModifier(project.VisualStyle);
+
         foreach (var scene in project.Scenes.OrderBy(s => s.Index))
         {
-            scene.VisualPrompt = await DescribeVisualAsync(scene.NarrationText, cancellationToken);
+            var described = await DescribeVisualAsync(scene.NarrationText, cancellationToken);
+            // Append the chosen style so every scene shares one consistent look.
+            scene.VisualPrompt = string.IsNullOrEmpty(styleModifier) ? described : $"{described}. {styleModifier}";
 
             // Free provider only, for now — a long video at Pollo image rates would be costly.
             // Generate at 2K so there's real detail to zoom into without the picture going soft.
@@ -303,6 +307,22 @@ public sealed partial class LongFormService(
         project.Progress = 98;
         await SaveAsync(project, cancellationToken);
     }
+
+    /// <summary>
+    /// Maps a style key to a prompt suffix appended to every scene image, giving the whole video
+    /// one consistent look. Unknown keys fall back to cinematic.
+    /// </summary>
+    private static string StyleModifier(string style) => style?.ToLowerInvariant() switch
+    {
+        "photorealistic" => "Photorealistic, sharp focus, natural lighting, high detail, 4k.",
+        "cartoon" => "2D cartoon illustration, bright bold colors, clean outlines, playful children's animation style.",
+        "anime" => "Anime style, vibrant colors, detailed anime illustration, cel shading.",
+        "3d" => "3D rendered animation, Pixar-style, soft global illumination, colorful, highly detailed.",
+        "watercolor" => "Soft watercolor painting, gentle brush strokes, artistic, pastel palette.",
+        "storybook" => "Children's storybook illustration, soft hand-drawn look, warm colors, whimsical.",
+        "cinematic" or "" or null => "Cinematic film still, dramatic lighting, shallow depth of field, 35mm, highly detailed.",
+        _ => "Cinematic film still, dramatic lighting, 35mm, highly detailed."
+    };
 
     /// <summary>Turns a line of narration into a one-line concrete image prompt; falls back to the narration itself.</summary>
     private async Task<string> DescribeVisualAsync(string narration, CancellationToken cancellationToken)

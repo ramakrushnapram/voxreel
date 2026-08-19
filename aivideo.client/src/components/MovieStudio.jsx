@@ -25,6 +25,7 @@ export default function MovieStudio({ status }) {
     const [useScript, setUseScript] = useState(false);
     const [minutes, setMinutes] = useState(1);
     const [aspectRatio, setAspectRatio] = useState('16:9');
+    const [visualStyle, setVisualStyle] = useState('cinematic');
     const [useRag, setUseRag] = useState(false);
     const [music, setMusic] = useState(true);
     const [subtitles, setSubtitles] = useState(true);
@@ -62,6 +63,7 @@ export default function MovieStudio({ status }) {
                 scriptText: useScript ? scriptText.trim() : null,
                 targetMinutes: Number(minutes),
                 aspectRatio,
+                visualStyle,
                 useRag,
                 backgroundMusic: music,
                 subtitles,
@@ -146,6 +148,18 @@ export default function MovieStudio({ status }) {
                         </select>
                     </label>
                 </div>
+                <label>
+                    <span>Visual style</span>
+                    <select value={visualStyle} onChange={(e) => setVisualStyle(e.target.value)}>
+                        <option value="cinematic">Cinematic</option>
+                        <option value="photorealistic">Photorealistic</option>
+                        <option value="cartoon">Cartoon (kids)</option>
+                        <option value="anime">Anime</option>
+                        <option value="3d">3D animation (Pixar-like)</option>
+                        <option value="watercolor">Watercolor</option>
+                        <option value="storybook">Storybook</option>
+                    </select>
+                </label>
                 <label className="check">
                     <input type="checkbox" checked={music} onChange={(e) => setMusic(e.target.checked)} />
                     <span>Background music<em>A soft ambient bed, ducked under the narration.</em></span>

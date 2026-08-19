@@ -41,6 +41,7 @@ public sealed class VideoProjectsController(
             ScriptText = hasScript ? request.ScriptText!.Trim() : string.Empty,
             TargetMinutes = Math.Clamp(request.TargetMinutes, 1, 20),
             AspectRatio = request.AspectRatio,
+            VisualStyle = string.IsNullOrWhiteSpace(request.VisualStyle) ? "cinematic" : request.VisualStyle.Trim(),
             UseRag = request.UseRag,
             BackgroundMusic = request.BackgroundMusic,
             Subtitles = request.Subtitles,

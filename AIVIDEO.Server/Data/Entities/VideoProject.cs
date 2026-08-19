@@ -43,6 +43,10 @@ public class VideoProject
     [MaxLength(16)]
     public string Provider { get; set; } = "free";
 
+    /// <summary>Visual style key applied to every scene's image prompt (cinematic, cartoon, anime, …).</summary>
+    [MaxLength(32)]
+    public string VisualStyle { get; set; } = "cinematic";
+
     /// <summary>Ground scene planning/script in the user's RAG documents.</summary>
     public bool UseRag { get; set; }
 
