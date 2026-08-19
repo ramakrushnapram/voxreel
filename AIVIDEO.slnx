@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="aivideo.client/aivideo.client.esproj">
+    <Build />
+    <Deploy />
+  </Project>
+  <Project Path="AIVIDEO.Server/AIVIDEO.Server.csproj" />
+</Solution>

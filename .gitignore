@@ -1,0 +1,53 @@
+# ---- Build output ----
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# ---- Visual Studio / Rider / VS Code ----
+.vs/
+.idea/
+*.swp
+.vscode/*
+!.vscode/launch.json
+!.vscode/extensions.json
+
+# ---- Node ----
+node_modules/
+dist/
+dist-ssr/
+*.local
+.npm
+.eslintcache
+.oxlintcache
+
+# ---- Generated + downloaded media ----
+# Renders are large and expensive; they are reproducible output, never source.
+.media/
+*.mp4
+*.webm
+*.mov
+*.mp3
+*.wav
+
+# ---- Secrets ----
+# Pollo, ElevenLabs, and YouTube credentials live in user-secrets or environment
+# variables. Nothing containing a real key may ever be committed.
+appsettings.*.Local.json
+appsettings.Local.json
+secrets.json
+*.pfx
+*.p12
+.env
+.env.*
+!.env.example
+
+# ---- Logs / temp ----
+*.log
+npm-debug.log*
+logs/
+TestResults/

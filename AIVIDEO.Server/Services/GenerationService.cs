@@ -1,0 +1,278 @@
+using System.Text.Json;
+using AIVIDEO.Server.Configuration;
+using AIVIDEO.Server.Contracts;
+using AIVIDEO.Server.Data;
+using AIVIDEO.Server.Data.Entities;
+using AIVIDEO.Server.Pollo;
+using AIVIDEO.Server.Storage;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
+
+namespace AIVIDEO.Server.Services;
+
+/// <summary>
+/// Raised for caller mistakes (bad length, unreachable image) so controllers can return 400
+/// instead of a 500. Distinct from <see cref="PolloApiException"/>, which means Pollo rejected us.
+/// </summary>
+public sealed class GenerationValidationException(string message) : Exception(message);
+
+/// <summary>
+/// Creates generation rows and submits them to Pollo.
+///
+/// Submission is deliberately synchronous with the HTTP request while completion is not:
+/// Pollo returns a task id in well under a second, so the caller gets immediate confirmation
+/// and a row to poll, and the minutes-long wait for the render is handled by
+/// <see cref="PolloPollingService"/>.
+/// </summary>
+public sealed class GenerationService(
+    AppDbContext db,
+    IPolloClient polloClient,
+    IAssetStore assetStore,
+    IOptionsMonitor<PolloOptions> polloOptions,
+    ILogger<GenerationService> logger)
+{
+    private static readonly JsonSerializerOptions JsonOptions = new(JsonSerializerDefaults.Web)
+    {
+        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+    };
+
+    public async Task<GenerationRequest> CreateTextToVideoAsync(
+        CreateTextToVideoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateLength(request.Length);
+
+        var opts = polloOptions.CurrentValue;
+        var model = ResolveRole(opts.Models, request.Role);
+
+        var input = new PolloInput
+        {
+            Prompt = request.Prompt,
+            Length = request.Length,
+            Resolution = request.Resolution,
+            AspectRatio = request.AspectRatio,
+            Mode = request.Mode,
+            GenerateAudio = request.GenerateAudio
+        };
+
+        var entity = new GenerationRequest
+        {
+            Kind = GenerationKind.TextToVideo,
+            Role = request.Role,
+            Model = model,
+            Prompt = request.Prompt,
+            Length = request.Length,
+            Resolution = request.Resolution,
+            AspectRatio = request.AspectRatio,
+            Mode = request.Mode,
+            GenerateAudio = request.GenerateAudio
+        };
+
+        return await SubmitAsync(entity, input, cancellationToken);
+    }
+
+    public async Task<GenerationRequest> CreateImageToVideoAsync(
+        CreateImageToVideoRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        ValidateLength(request.Length);
+
+        var imageUrl = await ResolveImageUrlAsync(request.ImageUrl, request.AssetId, cancellationToken);
+
+        var opts = polloOptions.CurrentValue;
+        var model = opts.Models.ImageToVideo;
+
+        var input = new PolloInput
+        {
+            Image = imageUrl,
+            Prompt = string.IsNullOrWhiteSpace(request.Prompt) ? null : request.Prompt,
+            Length = request.Length,
+            Resolution = request.Resolution,
+            Mode = request.Mode,
+            GenerateAudio = request.GenerateAudio
+        };
+
+        var entity = new GenerationRequest
+        {
+            Kind = GenerationKind.ImageToVideo,
+            Role = nameof(PolloModelOptions.ImageToVideo),
+            Model = model,
+            Prompt = request.Prompt,
+            SourceImageUrl = imageUrl,
+            Length = request.Length,
+            Resolution = request.Resolution,
+            Mode = request.Mode,
+            GenerateAudio = request.GenerateAudio
+        };
+
+        return await SubmitAsync(entity, input, cancellationToken);
+    }
+
+    public async Task<GenerationRequest> CreateImageAsync(
+        CreateImageRequest request,
+        CancellationToken cancellationToken = default)
+    {
+        var opts = polloOptions.CurrentValue;
+        var model = opts.Models.Still;
+
+        string? sourceUrl = null;
+        if (request.SourceAssetId is not null || !string.IsNullOrWhiteSpace(request.SourceImageUrl))
+        {
+            sourceUrl = await ResolveImageUrlAsync(request.SourceImageUrl, request.SourceAssetId, cancellationToken);
+        }
+
+        var input = new PolloInput
+        {
+            Prompt = request.Prompt,
+            AspectRatio = request.AspectRatio,
+            Resolution = request.Resolution,
+            // Image models take the edit source as "imageUrl"; video models take "image".
+            // Sending the wrong one silently produces a text-only generation.
+            ImageUrl = sourceUrl
+        };
+
+        var entity = new GenerationRequest
+        {
+            Kind = sourceUrl is null ? GenerationKind.Image : GenerationKind.ImageEdit,
+            Role = nameof(PolloModelOptions.Still),
+            Model = model,
+            Prompt = request.Prompt,
+            SourceImageUrl = sourceUrl,
+            Resolution = request.Resolution,
+            AspectRatio = request.AspectRatio
+        };
+
+        return await SubmitAsync(entity, input, cancellationToken);
+    }
+
+    public async Task<GenerationRequest?> GetAsync(Guid id, CancellationToken cancellationToken = default) =>
+        await db.GenerationRequests
+            .Include(g => g.Assets)
+            .FirstOrDefaultAsync(g => g.Id == id, cancellationToken);
+
+    public async Task<IReadOnlyList<GenerationRequest>> ListAsync(
+        int take = 50,
+        CancellationToken cancellationToken = default) =>
+        await db.GenerationRequests
+            .Include(g => g.Assets)
+            .OrderByDescending(g => g.CreatedUtc)
+            .Take(Math.Clamp(take, 1, 200))
+            .ToListAsync(cancellationToken);
+
+    private async Task<GenerationRequest> SubmitAsync(
+        GenerationRequest entity,
+        PolloInput input,
+        CancellationToken cancellationToken)
+    {
+        var opts = polloOptions.CurrentValue;
+
+        var payload = new PolloGenerationRequest
+        {
+            Input = input,
+            // Only send a webhook URL when one is actually reachable. Pointing Pollo at an
+            // unreachable localhost callback would leave tasks completing with no notification.
+            WebhookUrl = string.IsNullOrWhiteSpace(opts.WebhookUrl) ? null : opts.WebhookUrl,
+            ClientSource = opts.ClientSource
+        };
+
+        entity.RequestJson = JsonSerializer.Serialize(payload, JsonOptions);
+
+        db.GenerationRequests.Add(entity);
+        await db.SaveChangesAsync(cancellationToken);
+
+        try
+        {
+            var created = await polloClient.CreateGenerationAsync(entity.Model, payload, cancellationToken);
+
+            entity.PolloTaskId = created.TaskId;
+            entity.Status = GenerationStatus.Submitted;
+            entity.SubmittedUtc = DateTimeOffset.UtcNow;
+            entity.NextPollUtc = DateTimeOffset.UtcNow.AddSeconds(opts.PollIntervalSeconds);
+            entity.Attempts++;
+        }
+        catch (PolloApiException ex)
+        {
+            // The row is kept rather than rolled back: a failed submission with its exact
+            // request JSON is the most useful thing to have when diagnosing a bad payload.
+            entity.Status = GenerationStatus.Failed;
+            entity.FailMessage = ex.Message;
+            entity.CompletedUtc = DateTimeOffset.UtcNow;
+            logger.LogError(ex, "Submission failed for generation {Id}.", entity.Id);
+        }
+
+        await db.SaveChangesAsync(cancellationToken);
+        return entity;
+    }
+
+    /// <summary>
+    /// Turns either a caller-supplied URL or an uploaded asset into a URL Pollo can fetch.
+    ///
+    /// The asset path is the one that bites people: Pollo downloads the image from their own
+    /// servers, so a local file is only usable when Storage:PublicBaseUrl exposes this server
+    /// to the internet. Failing here with an explanation beats failing at Pollo with a fetch error.
+    /// </summary>
+    private async Task<string> ResolveImageUrlAsync(
+        string? imageUrl,
+        Guid? assetId,
+        CancellationToken cancellationToken)
+    {
+        if (!string.IsNullOrWhiteSpace(imageUrl) && assetId is not null)
+        {
+            throw new GenerationValidationException("Supply either imageUrl or assetId, not both.");
+        }
+
+        if (!string.IsNullOrWhiteSpace(imageUrl))
+        {
+            if (!Uri.TryCreate(imageUrl, UriKind.Absolute, out var parsed) ||
+                (parsed.Scheme != Uri.UriSchemeHttp && parsed.Scheme != Uri.UriSchemeHttps))
+            {
+                throw new GenerationValidationException("imageUrl must be an absolute http(s) URL.");
+            }
+
+            return imageUrl;
+        }
+
+        if (assetId is null)
+        {
+            throw new GenerationValidationException("Supply either imageUrl or assetId.");
+        }
+
+        var asset = await db.MediaAssets.FirstOrDefaultAsync(a => a.Id == assetId, cancellationToken)
+                    ?? throw new GenerationValidationException($"Asset {assetId} was not found.");
+
+        var publicUrl = assetStore.BuildPublicUrl(asset);
+
+        if (publicUrl is null)
+        {
+            throw new GenerationValidationException(
+                "This asset cannot be sent to Pollo because Storage:PublicBaseUrl is not configured. " +
+                "Pollo fetches source images over the internet and cannot reach localhost. " +
+                "Either expose this server with a tunnel and set Storage:PublicBaseUrl, " +
+                "or pass an already-public imageUrl instead.");
+        }
+
+        return publicUrl;
+    }
+
+    private static void ValidateLength(int length)
+    {
+        if (!PolloLimits.IsAllowedLength(length))
+        {
+            throw new GenerationValidationException(
+                $"length must be one of {string.Join(", ", PolloLimits.AllowedLengths)}. " +
+                $"Pollo caps a single clip at {PolloLimits.MaxClipSeconds}s — longer runtimes are " +
+                "produced by assembling many clips, not by raising this value.");
+        }
+    }
+
+    private static string ResolveRole(PolloModelOptions models, string role) => role.ToLowerInvariant() switch
+    {
+        "hero" => models.Hero,
+        "broll" or "b-roll" => models.Broll,
+        "imagetovideo" => models.ImageToVideo,
+        "characterlock" => models.CharacterLock,
+        "still" => models.Still,
+        _ => throw new GenerationValidationException(
+            $"Unknown role '{role}'. Expected Hero, Broll, ImageToVideo, CharacterLock, or Still.")
+    };
+}
