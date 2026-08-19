@@ -166,7 +166,12 @@ public sealed partial class LongFormService(
         var workDir = WorkDir(project.Id);
         var (width, height) = Dimensions(project.AspectRatio);
 
+        // Crossfade duration. Each clip is rendered this much longer than its scene so the
+        // overlaps don't steal narration time; keep it short so brief scenes still work.
+        const double transition = 0.5;
+
         var clipPaths = new List<string>();
+        var clipSeconds = new List<double>();
         var wavPaths = new List<string>();
 
         foreach (var scene in project.Scenes.OrderBy(s => s.Index))
@@ -182,9 +187,12 @@ public sealed partial class LongFormService(
                 continue;
             }
 
-            var seconds = Math.Max(1.0, scene.DurationMs / 1000.0);
-            await ffmpeg.KenBurnsAsync(imagePath, clipPath, seconds, width, height, cancellationToken);
+            var sceneSeconds = Math.Max(1.0, scene.DurationMs / 1000.0);
+            var clipLength = sceneSeconds + transition;   // extra tail absorbed by the crossfade
+            // Vary the motion per scene so consecutive shots don't all move the same way.
+            await ffmpeg.KenBurnsAsync(imagePath, clipPath, clipLength, width, height, scene.Index, cancellationToken);
             clipPaths.Add(clipPath);
+            clipSeconds.Add(clipLength);
             wavPaths.Add(wavPath);
         }
 
@@ -197,7 +205,7 @@ public sealed partial class LongFormService(
         var narrationTrack = Path.Combine(workDir, "narration.wav");
         var finalPath = Path.Combine(workDir, "final.mp4");
 
-        await ffmpeg.ConcatAsync(clipPaths, Path.Combine(workDir, "clips.txt"), videoTrack, cancellationToken);
+        await ffmpeg.ConcatWithTransitionsAsync(clipPaths, clipSeconds, transition, videoTrack, cancellationToken);
         await ffmpeg.ConcatAudioAsync(wavPaths, Path.Combine(workDir, "audio.txt"), narrationTrack, cancellationToken);
 
         // Optionally lay a synthesized ambient bed under the narration (ducked when the voice
