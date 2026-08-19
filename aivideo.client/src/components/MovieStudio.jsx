@@ -21,6 +21,8 @@ const ACTIVE = ['Draft', 'Planning', 'Narrating', 'GeneratingVisuals', 'Assembli
 export default function MovieStudio({ status }) {
     const [title, setTitle] = useState('');
     const [topic, setTopic] = useState('');
+    const [scriptText, setScriptText] = useState('');
+    const [useScript, setUseScript] = useState(false);
     const [minutes, setMinutes] = useState(1);
     const [aspectRatio, setAspectRatio] = useState('16:9');
     const [useRag, setUseRag] = useState(false);
@@ -57,6 +59,7 @@ export default function MovieStudio({ status }) {
             await api.createVideoProject({
                 title: title.trim() || topic.trim().slice(0, 60) || 'Untitled',
                 topic: topic.trim(),
+                scriptText: useScript ? scriptText.trim() : null,
                 targetMinutes: Number(minutes),
                 aspectRatio,
                 useRag,
@@ -65,6 +68,7 @@ export default function MovieStudio({ status }) {
             });
             setTopic('');
             setTitle('');
+            setScriptText('');
             await refresh();
         } catch (err) {
             setError(err.message);
@@ -87,9 +91,10 @@ export default function MovieStudio({ status }) {
                     <p>A full narrated video from a topic — free images, motion, and voiceover, assembled for you.</p>
                 </div>
 
-                {!ollamaReady && (
+                {!ollamaReady && !useScript && (
                     <div className="banner banner-warn">
-                        <strong>Ollama isn't running.</strong> The script &amp; scene planning need it.
+                        <strong>Ollama isn't running.</strong> Writing a script from a topic needs it —
+                        or paste your own script below, which works without Ollama.
                         <code>ollama pull llama3.2</code>
                     </div>
                 )}
@@ -99,11 +104,32 @@ export default function MovieStudio({ status }) {
                     <input type="text" value={title} placeholder="The Cape Hatteras Lighthouse"
                         onChange={(e) => setTitle(e.target.value)} />
                 </label>
-                <label>
-                    <span>Topic</span>
-                    <textarea rows={3} value={topic} placeholder="Tell the story of the tallest lighthouse in America"
-                        onChange={(e) => setTopic(e.target.value)} />
-                </label>
+                <div className="segmented">
+                    <button type="button" className={!useScript ? 'seg seg-active' : 'seg'} onClick={() => setUseScript(false)}>
+                        From a topic
+                    </button>
+                    <button type="button" className={useScript ? 'seg seg-active' : 'seg'} onClick={() => setUseScript(true)}>
+                        Paste a script / transcript
+                    </button>
+                </div>
+
+                {!useScript && (
+                    <label>
+                        <span>Topic</span>
+                        <textarea rows={3} value={topic} placeholder="Tell the story of the tallest lighthouse in America"
+                            onChange={(e) => setTopic(e.target.value)} />
+                    </label>
+                )}
+
+                {useScript && (
+                    <label>
+                        <span>Script / transcript</span>
+                        <textarea rows={8} value={scriptText}
+                            placeholder="Paste your script or a YouTube transcript. Timestamps and [Music] markers are cleaned automatically; the words become the narration."
+                            onChange={(e) => setScriptText(e.target.value)} />
+                        <em className="hint">Long transcripts are grouped into up to 60 scenes. The LLM script step is skipped.</em>
+                    </label>
+                )}
                 <div className="row">
                     <label>
                         <span>Length</span>
@@ -135,7 +161,8 @@ export default function MovieStudio({ status }) {
 
                 {error && <p className="error">{error}</p>}
 
-                <button type="submit" className="primary" disabled={!topic.trim() || busy || !ollamaReady}>
+                <button type="submit" className="primary"
+                    disabled={busy || (useScript ? !scriptText.trim() : (!topic.trim() || !ollamaReady))}>
                     {busy ? 'Starting…' : 'Make the movie'}
                 </button>
                 <p className="hint">Takes a few minutes. It writes a script, records narration, generates a visual per scene, and stitches it together.</p>

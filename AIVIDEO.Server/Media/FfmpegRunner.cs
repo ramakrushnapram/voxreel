@@ -128,6 +128,72 @@ public sealed class FfmpegRunner(IConfiguration configuration, ILogger<FfmpegRun
         await RunExpectingSuccessAsync(args.ToArray(), TimeSpan.FromMinutes(8), cancellationToken);
     }
 
+    /// <summary>
+    /// Renders an intro title card: the movie's title over a darkened, blurred version of the
+    /// first scene image (or a solid backdrop if none), fading in then holding. Normalised to
+    /// match the scene clips so it crossfades into the video cleanly.
+    /// </summary>
+    public async Task MakeTitleCardAsync(string title, string? backgroundImagePath, double seconds, int width, int height, string workDir, string outputPath, CancellationToken cancellationToken)
+    {
+        // Pass the title via a text file so punctuation doesn't have to be escaped for drawtext.
+        var titleFile = Path.Combine(workDir, "title.txt");
+        await File.WriteAllTextAsync(titleFile, title, cancellationToken);
+
+        var font = FindFont();
+        var d = seconds.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+        var fadeOutStart = (seconds - 0.6).ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+
+        // Fade the text in over 0.4–1.0s and out in the last 0.6s.
+        var alpha = $"if(lt(t,0.4),0,if(lt(t,1),(t-0.4)/0.6,if(lt(t,{fadeOutStart}),1,(({d}-t)/0.6))))";
+
+        var draw =
+            $"drawtext=fontfile='{Escape(font)}':textfile='{Escape(titleFile)}':fontcolor=white:" +
+            $"fontsize={height / 14}:box=0:x=(w-text_w)/2:y=(h-text_h)/2:" +
+            $"shadowcolor=black@0.6:shadowx=2:shadowy=2:alpha='{alpha}'";
+
+        string[] args;
+        if (backgroundImagePath is not null && File.Exists(backgroundImagePath))
+        {
+            var vf = $"scale={width}:{height}:force_original_aspect_ratio=increase,crop={width}:{height}," +
+                     $"boxblur=18:1,eq=brightness=-0.4:saturation=0.85,{draw},fps=25,setsar=1,format=yuv420p";
+            args = ["-y", "-loop", "1", "-i", backgroundImagePath, "-t", d,
+                    "-vf", vf, "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", outputPath];
+        }
+        else
+        {
+            args = ["-y", "-f", "lavfi", "-i", $"color=c=0x0b0e14:s={width}x{height}:d={d}:r=25",
+                    "-vf", $"{draw},setsar=1,format=yuv420p", "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", outputPath];
+        }
+
+        await RunExpectingSuccessAsync(args, TimeSpan.FromMinutes(3), cancellationToken);
+    }
+
+    /// <summary>Delays audio by prepending silence — used so narration starts after the title card.</summary>
+    public async Task DelayAudioAsync(string inputPath, double seconds, string outputPath, CancellationToken cancellationToken)
+    {
+        var ms = (int)Math.Round(seconds * 1000);
+        string[] args =
+        [
+            "-y", "-i", inputPath, "-af", $"adelay={ms}:all=1", "-c:a", "pcm_s16le", outputPath
+        ];
+        await RunExpectingSuccessAsync(args, TimeSpan.FromMinutes(3), cancellationToken);
+    }
+
+    private static string FindFont()
+    {
+        // Windows bold system fonts, in order of preference; drawtext needs an explicit file.
+        string[] candidates =
+        [
+            @"C:\Windows\Fonts\arialbd.ttf",
+            @"C:\Windows\Fonts\segoeuib.ttf",
+            @"C:\Windows\Fonts\arial.ttf"
+        ];
+        return candidates.FirstOrDefault(File.Exists) ?? candidates[0];
+    }
+
+    // libass/drawtext path escaping: forward slashes, and the drive colon escaped.
+    private static string Escape(string path) => path.Replace('\\', '/').Replace(":", "\\:");
+
     /// <summary>Concatenates pre-normalised scene clips into one silent video track.</summary>
     public async Task ConcatAsync(IReadOnlyList<string> clipPaths, string listFilePath, string outputPath, CancellationToken cancellationToken)
     {

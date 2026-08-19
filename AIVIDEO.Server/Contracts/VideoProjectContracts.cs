@@ -8,8 +8,16 @@ public sealed record CreateVideoProjectRequest
     [Required, StringLength(200, MinimumLength = 1)]
     public string Title { get; init; } = string.Empty;
 
-    [Required, StringLength(1000, MinimumLength = 1)]
+    /// <summary>Required unless <see cref="ScriptText"/> is supplied.</summary>
+    [StringLength(1000)]
     public string Topic { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Optional: paste your own script or transcript to turn into a video. When set, the LLM
+    /// script-writing step is skipped and this text becomes the narration, split into scenes.
+    /// </summary>
+    [StringLength(100000)]
+    public string? ScriptText { get; init; }
 
     public int TargetMinutes { get; init; } = 2;
 

@@ -22,11 +22,23 @@ public sealed class VideoProjectsController(
         [FromBody] CreateVideoProjectRequest request,
         CancellationToken cancellationToken)
     {
+        var hasScript = !string.IsNullOrWhiteSpace(request.ScriptText);
+        if (string.IsNullOrWhiteSpace(request.Topic) && !hasScript)
+        {
+            return BadRequest(new ProblemDetails
+            {
+                Title = "Nothing to build from",
+                Detail = "Provide a topic, or paste a script/transcript.",
+                Status = StatusCodes.Status400BadRequest
+            });
+        }
+
         var project = new VideoProject
         {
             UserId = User.GetUserId(),
             Title = request.Title.Trim(),
             Topic = request.Topic.Trim(),
+            ScriptText = hasScript ? request.ScriptText!.Trim() : string.Empty,
             TargetMinutes = Math.Clamp(request.TargetMinutes, 1, 20),
             AspectRatio = request.AspectRatio,
             UseRag = request.UseRag,

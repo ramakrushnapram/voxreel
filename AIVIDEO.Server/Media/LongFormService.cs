@@ -77,13 +77,24 @@ public sealed partial class LongFormService(
                 project.UserId, project.Topic, project.TargetMinutes, project.UseRag, cancellationToken);
             project.ScriptText = scriptResult.Script;
         }
+        else
+        {
+            // A pasted script/transcript often carries YouTube-style timestamps and [Music]
+            // markers glued to the words; strip them so TTS reads only the spoken text.
+            project.ScriptText = CleanTranscript(project.ScriptText);
+        }
 
         var sentences = SplitSentences(project.ScriptText);
-        // Group sentences into scenes of ~2 so each is a handful of seconds of narration.
+
+        // Cap the scene count so a long transcript (e.g. a 30-minute one) doesn't spawn hundreds
+        // of image generations and renders. Group more sentences per scene as the input grows.
+        const int maxScenes = 60;
+        var perScene = Math.Max(2, (int)Math.Ceiling(sentences.Count / (double)maxScenes));
+
         var scenes = new List<Scene>();
-        for (var i = 0; i < sentences.Count; i += 2)
+        for (var i = 0; i < sentences.Count; i += perScene)
         {
-            var text = string.Join(" ", sentences.Skip(i).Take(2)).Trim();
+            var text = string.Join(" ", sentences.Skip(i).Take(perScene)).Trim();
             if (text.Length == 0) continue;
             scenes.Add(new Scene
             {
@@ -205,11 +216,39 @@ public sealed partial class LongFormService(
         var narrationTrack = Path.Combine(workDir, "narration.wav");
         var finalPath = Path.Combine(workDir, "final.mp4");
 
+        // Intro title card: a few seconds of the title over the first scene's (blurred) image.
+        // Prepended to the video and crossfaded in; narration and subtitles shift by its length
+        // so they still line up with scene 1, which now starts after the card.
+        const double titleSeconds = 3.0;
+        var titleOffset = 0.0;
+        var firstImage = await FirstSceneImagePathAsync(project, cancellationToken);
+        var titleClip = Path.Combine(workDir, "title.mp4");
+        try
+        {
+            var titleText = string.IsNullOrWhiteSpace(project.Title) ? project.Topic : project.Title;
+            await ffmpeg.MakeTitleCardAsync(titleText, firstImage, titleSeconds + transition, width, height, workDir, titleClip, cancellationToken);
+            clipPaths.Insert(0, titleClip);
+            clipSeconds.Insert(0, titleSeconds + transition);
+            titleOffset = titleSeconds;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(ex, "Title card failed for {Id}; continuing without it.", project.Id);
+        }
+
         // If subtitles are on, the burn step re-encodes this track — so render it fast here and
         // let that pass set final quality. If not, this track is final, so render it at quality.
         await ffmpeg.ConcatWithTransitionsAsync(
             clipPaths, clipSeconds, transition, videoTrack, fastIntermediate: project.Subtitles, cancellationToken);
         await ffmpeg.ConcatAudioAsync(wavPaths, Path.Combine(workDir, "audio.txt"), narrationTrack, cancellationToken);
+
+        // Delay the narration so it begins when the title card ends.
+        if (titleOffset > 0)
+        {
+            var delayed = Path.Combine(workDir, "narration_delayed.wav");
+            await ffmpeg.DelayAudioAsync(narrationTrack, titleOffset, delayed, cancellationToken);
+            narrationTrack = delayed;
+        }
 
         // Optionally lay a synthesized ambient bed under the narration (ducked when the voice
         // plays). Falls back to narration-only if music generation fails — music is a nicety,
@@ -219,7 +258,8 @@ public sealed partial class LongFormService(
         {
             try
             {
-                var totalSeconds = Math.Max(2.0, project.Scenes.Sum(s => s.DurationMs) / 1000.0);
+                // Music covers the title card plus all narration.
+                var totalSeconds = Math.Max(2.0, titleOffset + project.Scenes.Sum(s => s.DurationMs) / 1000.0);
                 var musicPath = Path.Combine(workDir, "music.wav");
                 var mixedPath = Path.Combine(workDir, "mixed.wav");
                 await ffmpeg.GenerateMusicBedAsync(totalSeconds, musicPath, cancellationToken);
@@ -239,7 +279,7 @@ public sealed partial class LongFormService(
             try
             {
                 var srtPath = Path.Combine(workDir, "captions.srt");
-                await File.WriteAllTextAsync(srtPath, BuildSrt(project.Scenes.OrderBy(s => s.Index)), cancellationToken);
+                await File.WriteAllTextAsync(srtPath, BuildSrt(project.Scenes.OrderBy(s => s.Index), titleOffset), cancellationToken);
                 await ffmpeg.BurnSubtitlesAndMuxAsync(videoTrack, finalAudioTrack, srtPath, finalPath, cancellationToken);
             }
             catch (Exception ex)
@@ -283,6 +323,15 @@ public sealed partial class LongFormService(
         }
     }
 
+    /// <summary>Absolute path to the first scene's generated image, for the title-card backdrop.</summary>
+    private async Task<string?> FirstSceneImagePathAsync(VideoProject project, CancellationToken cancellationToken)
+    {
+        var first = project.Scenes.OrderBy(s => s.Index).FirstOrDefault(s => s.ImageAssetId is not null);
+        if (first?.ImageAssetId is null) return null;
+        var asset = await db.MediaAssets.FirstOrDefaultAsync(a => a.Id == first.ImageAssetId, cancellationToken);
+        return asset is null ? null : assetStore.ResolvePath(asset);
+    }
+
     private void EnsureDependencies()
     {
         if (!tts.IsSupported)
@@ -321,10 +370,10 @@ public sealed partial class LongFormService(
     /// Builds an SRT from the scenes, timing each caption to its narration span (cumulative
     /// durations). Long narration is wrapped to two lines so captions don't run off-screen.
     /// </summary>
-    private static string BuildSrt(IEnumerable<Scene> scenes)
+    private static string BuildSrt(IEnumerable<Scene> scenes, double startOffsetSeconds)
     {
         var sb = new System.Text.StringBuilder();
-        var cursor = TimeSpan.Zero;
+        var cursor = TimeSpan.FromSeconds(startOffsetSeconds);
         var n = 1;
         foreach (var scene in scenes)
         {
@@ -373,4 +422,38 @@ public sealed partial class LongFormService(
 
     [GeneratedRegex(@"(?<=[.!?])\s+")]
     private static partial Regex SentenceRegex();
+
+    /// <summary>
+    /// Strips the cruft from a pasted transcript so only spoken words remain: bracketed markers
+    /// like [Music]/[Applause], "Chapter N:" headers, mm:ss timestamps, and "N minutes, N seconds"
+    /// labels (which in YouTube transcripts are often glued directly to the following word).
+    /// </summary>
+    private static string CleanTranscript(string text)
+    {
+        var t = text.Replace("\r\n", "\n");
+        t = BracketRegex().Replace(t, " ");        // [Music], [Applause], …
+        t = ChapterRegex().Replace(t, " ");        // "Chapter 2: …" headers
+        t = TimestampRegex().Replace(t, " ");      // 0:08, 12:32, 1:05:33
+        t = DurationRegex().Replace(t, " ");        // "5 seconds", "1 minute, 5 seconds"
+        t = WhitespaceRegex().Replace(t, " ");
+        return t.Trim();
+    }
+
+    [GeneratedRegex(@"\[[^\]]*\]")]
+    private static partial Regex BracketRegex();
+
+    [GeneratedRegex(@"(?im)^\s*chapter\s+\d+\s*:.*$")]
+    private static partial Regex ChapterRegex();
+
+    // No word boundaries: YouTube transcripts glue these to the next word ("0:088 secondsgood"),
+    // where "0:08" is the timestamp and "8 seconds" the duration label. Matching a timestamp as
+    // exactly :\d\d leaves the label's leading digit for the duration pattern to remove next.
+    [GeneratedRegex(@"\d{1,2}:\d{2}(:\d{2})?")]
+    private static partial Regex TimestampRegex();
+
+    [GeneratedRegex(@"\d+\s*minutes?(,?\s*\d+\s*seconds?)?|\d+\s*seconds?")]
+    private static partial Regex DurationRegex();
+
+    [GeneratedRegex(@"\s+")]
+    private static partial Regex WhitespaceRegex();
 }
