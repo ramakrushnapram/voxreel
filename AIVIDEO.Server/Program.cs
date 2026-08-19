@@ -3,6 +3,7 @@ using AIVIDEO.Server.Configuration;
 using AIVIDEO.Server.Data;
 using AIVIDEO.Server.Infrastructure;
 using AIVIDEO.Server.Llm;
+using AIVIDEO.Server.Media;
 using AIVIDEO.Server.Pollo;
 using AIVIDEO.Server.Providers;
 using AIVIDEO.Server.Services;
@@ -114,6 +115,13 @@ builder.Services.AddHttpClient<IOllamaClient, OllamaClient>(client =>
     client.Timeout = TimeSpan.FromSeconds(ollamaTimeout);
 });
 builder.Services.AddScoped<LlmService>();
+
+// ---- Long-form video pipeline ----
+builder.Services.AddSingleton<ITtsService, WindowsTtsService>();
+builder.Services.AddSingleton<FfmpegRunner>();
+builder.Services.AddScoped<LongFormService>();
+builder.Services.AddSingleton<LongFormQueue>();
+builder.Services.AddHostedService<LongFormRunner>();
 
 // Database outages become a 503 with a readable message rather than a 500 with a stack trace.
 builder.Services.AddExceptionHandler<DatabaseExceptionHandler>();

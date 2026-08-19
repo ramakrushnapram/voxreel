@@ -65,6 +65,12 @@ export const api = {
     createDocument: (name, text) => request('/api/documents', { method: 'POST', body: JSON.stringify({ name, text }) }),
     deleteDocument: (id) => request(`/api/documents/${id}`, { method: 'DELETE' }),
 
+    // ---- Long-form video ----
+    createVideoProject: (body) => request('/api/video-projects', { method: 'POST', body: JSON.stringify(body) }),
+    listVideoProjects: () => request('/api/video-projects'),
+    getVideoProject: (id) => request(`/api/video-projects/${id}`),
+    deleteVideoProject: (id) => request(`/api/video-projects/${id}`, { method: 'DELETE' }),
+
     /** Multipart upload — Content-Type is omitted so the browser sets the boundary. */
     uploadImage: async (file) => {
         const form = new FormData();

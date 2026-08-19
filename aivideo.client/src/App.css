@@ -187,6 +187,11 @@ a:hover { color: var(--accent-hot); }
 .script-output { min-height: 200px; }
 .script-text { white-space: pre-wrap; line-height: 1.7; font-size: 14.5px; color: var(--text); max-height: 640px; overflow-y: auto; }
 
+/* Movie maker */
+.movie-list { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 16px; }
+.progress { width: 80%; height: 6px; background: var(--surface-2); border-radius: 999px; overflow: hidden; margin-top: 4px; }
+.progress > div { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); transition: width .4s ease; }
+
 /* Knowledge / documents */
 .doc-list { display: grid; gap: 10px; }
 .doc { display: flex; align-items: center; justify-content: space-between; gap: 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }

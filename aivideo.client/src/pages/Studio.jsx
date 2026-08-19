@@ -5,9 +5,11 @@ import AnimatePanel from '../components/AnimatePanel';
 import QuickClipPanel from '../components/QuickClipPanel';
 import ScriptStudio from '../components/ScriptStudio';
 import KnowledgeStudio from '../components/KnowledgeStudio';
+import MovieStudio from '../components/MovieStudio';
 import GenerationCard from '../components/GenerationCard';
 
 const TABS = [
+    { id: 'movie', label: '🎬 Movie Maker' },
     { id: 'image', label: 'Image Studio' },
     { id: 'animate', label: 'Animate' },
     { id: 'clip', label: 'Quick Clip' },
@@ -17,7 +19,7 @@ const TABS = [
 
 /** The signed-in workspace: generation panels plus a live-polling gallery of the user's own work. */
 export default function Studio() {
-    const [tab, setTab] = useState('image');
+    const [tab, setTab] = useState('movie');
     const [status, setStatus] = useState(null);
     const [generations, setGenerations] = useState([]);
     const [galleryError, setGalleryError] = useState(null);
@@ -82,8 +84,9 @@ export default function Studio() {
                 ))}
             </nav>
 
-            {/* Script and Knowledge are LLM tools with their own full-width layout and no
-                generation gallery. */}
+            {/* Movie, Script and Knowledge have their own full-width layout and no
+                image-generation gallery. */}
+            {tab === 'movie' && <MovieStudio status={status} />}
             {tab === 'script' && <ScriptStudio status={status} />}
             {tab === 'knowledge' && <KnowledgeStudio status={status} />}
 

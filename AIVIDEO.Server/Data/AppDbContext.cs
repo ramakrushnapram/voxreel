@@ -19,6 +19,10 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
 
     public DbSet<DocumentChunk> DocumentChunks => Set<DocumentChunk>();
 
+    public DbSet<VideoProject> VideoProjects => Set<VideoProject>();
+
+    public DbSet<Scene> Scenes => Set<Scene>();
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         base.OnModelCreating(modelBuilder);
@@ -74,6 +78,26 @@ public class AppDbContext(DbContextOptions<AppDbContext> options) : DbContext(op
             entity.HasKey(e => e.Id);
             // Retrieval fetches all of a user's chunks to score in memory, so index by owner.
             entity.HasIndex(e => e.UserId);
+        });
+
+        modelBuilder.Entity<VideoProject>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.UserId, e.CreatedUtc });
+            entity.HasMany(e => e.Scenes)
+                  .WithOne(s => s.VideoProject)
+                  .HasForeignKey(s => s.VideoProjectId)
+                  .OnDelete(DeleteBehavior.Cascade);
+            // No FK constraint on the output asset: it's optional and deleting the asset row
+            // should not cascade into the project.
+            entity.HasOne(e => e.OutputAsset).WithMany().HasForeignKey(e => e.OutputAssetId)
+                  .OnDelete(DeleteBehavior.SetNull);
+        });
+
+        modelBuilder.Entity<Scene>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.HasIndex(e => new { e.VideoProjectId, e.Index });
         });
     }
 
